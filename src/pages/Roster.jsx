@@ -14,14 +14,25 @@ const weekStart = (d) => {
 };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
 const timeToMinutes = (t) => { const [h,m] = (t||"0:0").split(":").map(Number); return h*60 + m; };
-const shiftHours = (start,end) => Math.max(0, (timeToMinutes(end) - timeToMinutes(start)) / 60);
+const shiftHours = (start, end) => {
+  const s = timeToMinutes(start), e = timeToMinutes(end);
+  let mins = e - s;
+  if (mins <= 0) mins += 24*60; // support overnight (end past midnight)
+  return Math.max(0, mins/60);
+};
+const eachDateIso = (from, to) => {
+  const out = []; let d = new Date(from); const end = new Date(to);
+  d.setHours(0,0,0,0); end.setHours(0,0,0,0);
+  while (d <= end) { out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return out;
+};
 
 export default function Roster(){
   const [bases, setBases] = useState([]);
   const [depts, setDepts] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [viewMode, setViewMode] = useState("grid"); // grid | list
-  const [groupBy, setGroupBy] = useState("role_code"); // role_code | base | department
+  const [groupBy, setGroupBy] = useState("employee"); // employee | role_code | base | department
 
   const [filters, setFilters] = useState(()=>{
     const ws = weekStart(new Date());
@@ -32,6 +43,9 @@ export default function Roster(){
 
   const [shifts, setShifts] = useState([]); // coverage rows with assigned_count etc.
   const [loading, setLoading] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [absencesByEmpDay, setAbsencesByEmpDay] = useState({}); // { empId: Set([YYYY-MM-DD]) }
 
   const days = useMemo(()=>{
     const start = new Date(filters.from);
@@ -94,6 +108,8 @@ export default function Roster(){
 
   // assignment helpers
   const [assignForm, setAssignForm] = useState({ empSearch:"", employee_id:"" });
+  // quick-add UI state: which employee|date cell is open
+  const [quickAddKey, setQuickAddKey] = useState(""); // `${emp.id}|${date}`
 
   async function assign(shift_id){
     if (!assignForm.employee_id) return toast("Choose an employee", "warning");
@@ -115,6 +131,39 @@ export default function Roster(){
     const { error } = await supabase.from("roster_shift").update({ status }).eq("id", shift_id);
     if (error) return toast(error.message, "danger");
     toast(`Shift ${status}`, "success");
+    load();
+  }
+
+  async function quickCreate(emp, date, kind){
+    // Presets
+    const presets = {
+      day: { start: "08:00", end: "16:00", role: emp.role_code || "SHIFT" },
+      night: { start: "20:00", end: "06:00", role: emp.role_code || "SHIFT" }, // overnight supported by shiftHours
+      training: { start: "09:00", end: "17:00", role: "TRAIN" }
+    };
+    const p = presets[kind];
+    if (!p) return;
+
+    const payload = {
+      shift_date: date,
+      start_time: p.start,
+      end_time: p.end,
+      base: emp.base || "",
+      department: emp.department || "",
+      role_code: p.role,
+      min_staff: 1,
+      max_staff: 1,
+      notes: kind.charAt(0).toUpperCase()+kind.slice(1)
+    };
+
+    const { data: created, error } = await supabase.from("roster_shift").insert([payload]).select().limit(1);
+    if (error) { toast(error.message, "danger"); return; }
+    const shift = created?.[0];
+    if (!shift) { toast("Shift not created", "danger"); return; }
+
+    const { error: errA } = await supabase.from("roster_assignment").insert([{ shift_id: shift.id || shift.shift_id || shift.ID, employee_id: emp.id, assigned_by: "admin@app" }]);
+    if (errA) { toast(errA.message, "danger"); } else { toast("Shift added", "success"); }
+    setQuickAddKey("");
     load();
   }
 
@@ -157,6 +206,27 @@ export default function Roster(){
     });
     return by;
   }, [conflicts]);
+
+  useEffect(()=>{
+    (async ()=>{
+      // Load absences overlapping the visible week
+      const { data, error } = await supabase
+        .from("absence")
+        .select("employee_id,start_date,end_date")
+        .lte("start_date", filters.to)
+        .gte("end_date", filters.from);
+      if (error) { console.error(error); setAbsencesByEmpDay({}); return; }
+      const map = {};
+      (data||[]).forEach(a => {
+        if (!a.employee_id) return;
+        const days = eachDateIso(a.start_date, a.end_date);
+        const set = map[a.employee_id] || new Set();
+        days.forEach(d => set.add(d));
+        map[a.employee_id] = set;
+      });
+      setAbsencesByEmpDay(map);
+    })();
+  }, [filters.from, filters.to]);
 
   const grouped = useMemo(() => {
     const by = new Map();
@@ -208,6 +278,8 @@ export default function Roster(){
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Roster</h1>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
+          <Button onClick={()=> setShowCreate(v=>!v)}>{showCreate? "Hide New Shift":"New Shift"}</Button>
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const next = weekStart(addDays(ws, 7));
@@ -218,76 +290,78 @@ export default function Roster(){
       <div className="text-sm text-gray-600">Plan shifts and track coverage. Absence conflicts are flagged automatically.</div>
 
       {/* Filters */}
-      <Card title="Filters">
-        <div className="grid md:grid-cols-6 gap-3">
-          <Field label="Team">
-            <Select value={filters.base} onChange={e=>setFilters(f=>({...f, base:e.target.value}))}>
-              <option value="">All</option>
-              {bases.map(b=> <option key={b} value={b}>{b}</option>)}
-            </Select>
-          </Field>
-          <Field label="Department">
-            <Select value={filters.dept} onChange={e=>setFilters(f=>({...f, dept:e.target.value}))}>
-              <option value="">All</option>
-              {depts.map(d=> <option key={d} value={d}>{d}</option>)}
-            </Select>
-          </Field>
-          <Field label="Week from (Mon)">
-            <Input type="date" value={filters.from} onChange={e=>{
-              const ws = weekStart(new Date(e.target.value));
-              setFilters(f=>({ ...f, from: iso(ws), to: iso(addDays(ws,6)) }));
-            }}/>
-          </Field>
-          <Field label="To (Sun)">
-            <Input type="date" value={filters.to} onChange={e=>setFilters(f=>({...f, to:e.target.value}))}/>
-          </Field>
-          <Field label="View">
-            <Select value={viewMode} onChange={e=>setViewMode(e.target.value)}>
-              <option value="grid">Grid</option>
-              <option value="list">List</option>
-            </Select>
-          </Field>
-          <Field label="Group by">
-            <Select value={groupBy} onChange={e=>setGroupBy(e.target.value)}>
-              <option value="role_code">Function / Role</option>
-              <option value="department">Department</option>
-              <option value="base">Team</option>
-              <option value="employee">Employee</option>
-            </Select>
-          </Field>
-          <div className="md:col-span-2 flex items-end">
-            <div className="text-sm text-gray-600">Showing week {filters.from} → {filters.to}</div>
+      {showFilters && (
+        <Card title="Filters">
+          <div className="grid md:grid-cols-6 gap-3">
+            <Field label="Team">
+              <Select value={filters.base} onChange={e=>setFilters(f=>({...f, base:e.target.value}))}>
+                <option value="">All</option>
+                {bases.map(b=> <option key={b} value={b}>{b}</option>)}
+              </Select>
+            </Field>
+            <Field label="Department">
+              <Select value={filters.dept} onChange={e=>setFilters(f=>({...f, dept:e.target.value}))}>
+                <option value="">All</option>
+                {depts.map(d=> <option key={d} value={d}>{d}</option>)}
+              </Select>
+            </Field>
+            <Field label="Week from (Mon)">
+              <Input type="date" value={filters.from} onChange={e=>{
+                const ws = weekStart(new Date(e.target.value));
+                setFilters(f=>({ ...f, from: iso(ws), to: iso(addDays(ws,6)) }));
+              }}/>
+            </Field>
+            <Field label="To (Sun)"><Input type="date" value={filters.to} onChange={e=>setFilters(f=>({...f, to:e.target.value}))}/></Field>
+            <Field label="View">
+              <Select value={viewMode} onChange={e=>setViewMode(e.target.value)}>
+                <option value="grid">Grid</option>
+                <option value="list">List</option>
+              </Select>
+            </Field>
+            <Field label="Group by">
+              <Select value={groupBy} onChange={e=>setGroupBy(e.target.value)}>
+                <option value="employee">Employee</option>
+                <option value="role_code">Function / Role</option>
+                <option value="department">Department</option>
+                <option value="base">Team</option>
+              </Select>
+            </Field>
+            <div className="md:col-span-2 flex items-end">
+              <div className="text-sm text-gray-600">Showing week {filters.from} → {filters.to}</div>
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* Create shift */}
-      <Card title="Create shift">
-        <form onSubmit={createShift} className="grid md:grid-cols-7 gap-3">
-          <Field label="Date"><Input type="date" value={newShift.shift_date} onChange={e=>setNewShift(s=>({...s, shift_date:e.target.value}))}/></Field>
-          <Field label="Start"><Input type="time" value={newShift.start_time} onChange={e=>setNewShift(s=>({...s, start_time:e.target.value}))}/></Field>
-          <Field label="End"><Input type="time" value={newShift.end_time} onChange={e=>setNewShift(s=>({...s, end_time:e.target.value}))}/></Field>
-          <Field label="Team"><Input value={newShift.base} onChange={e=>setNewShift(s=>({...s, base:e.target.value}))}/></Field>
-          <Field label="Dept"><Input value={newShift.department} onChange={e=>setNewShift(s=>({...s, department:e.target.value}))}/></Field>
-          <Field label="Role"><Input value={newShift.role_code} onChange={e=>setNewShift(s=>({...s, role_code:e.target.value}))}/></Field>
-          <Field label="Min / Max">
-            <div className="flex gap-2">
-              <Input type="number" min="1" value={newShift.min_staff} onChange={e=>setNewShift(s=>({...s, min_staff:e.target.value}))}/>
-              <Input type="number" min="1" value={newShift.max_staff} onChange={e=>setNewShift(s=>({...s, max_staff:e.target.value}))}/>
-            </div>
-          </Field>
-          <Field label="Notes" className="md:col-span-5"><Input value={newShift.notes} onChange={e=>setNewShift(s=>({...s, notes:e.target.value}))}/></Field>
-          <div className="md:col-span-7"><Button type="submit">Add shift</Button></div>
-        </form>
-      </Card>
+      {showCreate && (
+        <Card title="Create shift">
+          <form onSubmit={createShift} className="grid md:grid-cols-7 gap-3">
+            <Field label="Date"><Input type="date" value={newShift.shift_date} onChange={e=>setNewShift(s=>({...s, shift_date:e.target.value}))}/></Field>
+            <Field label="Start"><Input type="time" value={newShift.start_time} onChange={e=>setNewShift(s=>({...s, start_time:e.target.value}))}/></Field>
+            <Field label="End"><Input type="time" value={newShift.end_time} onChange={e=>setNewShift(s=>({...s, end_time:e.target.value}))}/></Field>
+            <Field label="Team"><Input value={newShift.base} onChange={e=>setNewShift(s=>({...s, base:e.target.value}))}/></Field>
+            <Field label="Dept"><Input value={newShift.department} onChange={e=>setNewShift(s=>({...s, department:e.target.value}))}/></Field>
+            <Field label="Role"><Input value={newShift.role_code} onChange={e=>setNewShift(s=>({...s, role_code:e.target.value}))}/></Field>
+            <Field label="Min / Max">
+              <div className="flex gap-2">
+                <Input type="number" min="1" value={newShift.min_staff} onChange={e=>setNewShift(s=>({...s, min_staff:e.target.value}))}/>
+                <Input type="number" min="1" value={newShift.max_staff} onChange={e=>setNewShift(s=>({...s, max_staff:e.target.value}))}/>
+              </div>
+            </Field>
+            <Field label="Notes" className="md:col-span-5"><Input value={newShift.notes} onChange={e=>setNewShift(s=>({...s, notes:e.target.value}))}/></Field>
+            <div className="md:col-span-7"><Button type="submit">Add shift</Button></div>
+          </form>
+        </Card>
+      )}
 
       {/* Multi-schedule view */}
       {viewMode === "grid" ? (
         <Card>
           <div className="overflow-auto">
-            <div className="min-w-[900px]">
+            <div className="min-w-[1100px]">
               {/* Header row: group label + 7 day columns */}
-              <div className="grid" style={{gridTemplateColumns: `220px repeat(7, 1fr)`}}>
+              <div className="grid" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                 <div className="p-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{groupBy === 'base' ? 'Team' : groupBy.replace('_',' ')}</div>
                 {days.map(d => (
                   <div key={d} className="p-3 text-sm font-semibold text-gray-700 sticky top-0 bg-white z-10 border-b">{new Date(d).toLocaleDateString(undefined,{ weekday:'short', month:'short', day:'numeric' })}</div>
@@ -307,7 +381,7 @@ export default function Roster(){
                           </div>
                           <div>
                             <div className="text-sm font-semibold">{emp.first_name} {emp.last_name}</div>
-                            <div className="text-[11px] text-gray-500">{emp.base || '—'} / {emp.department || '—'}</div>
+                            <div className="text-[11px] text-gray-500">{emp.base || '—'} / {emp.department || '—'}{emp.role_code ? ` • ${emp.role_code}` : ''}</div>
                           </div>
                         </div>
                         <div className="text-xs text-gray-600">{Math.round(totalHrs*10)/10}h</div>
@@ -316,26 +390,57 @@ export default function Roster(){
 
                     {/* Day cells */}
                     {days.map(d => (
-                      <div key={d} className="p-2 border-r min-h-[72px]">
-                        {byDay[d].length === 0 ? (
-                          <div className="text-[11px] text-gray-400">—</div>
-                        ) : (
-                          <div className="space-y-2">
-                            {byDay[d].map(s => {
-                              const hue = roleHue(String(s.role_code||''));
-                              const confl = (conflictsByShift[s.shift_id] || []).filter(c => c.employee_id === emp.id);
-                              return (
-                                <div key={`${emp.id}-${s.shift_id}`} className="rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
-                                  <div className="px-2 py-1 flex items-center justify-between">
-                                    <div className="font-medium">{s.role_code || 'Shift'}</div>
-                                    {confl.length>0 && <span className="text-red-700 bg-red-50 border border-red-200 rounded px-1">{confl.length} conflict</span>}
-                                  </div>
-                                  <div className="px-2 pb-1">{s.start_time} – {s.end_time}</div>
-                                </div>
-                              );
-                            })}
+                      <div key={d} className="relative p-1.5 border-r min-h-[56px]">
+                        {/* Quick add button */}
+                        <button
+                          className="absolute top-0.5 right-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
+                          onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setQuickAddKey(k=> k===`${emp.id}|${d}`? "" : `${emp.id}|${d}`); }}
+                          title="Quick add"
+                        >＋</button>
+                        {quickAddKey === `${emp.id}|${d}` && (
+                          <div className="absolute z-20 right-1 top-5 bg-white border rounded shadow p-1 flex flex-col gap-1 text-xs">
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'day')}>Day shift</button>
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'night')}>Night shift</button>
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'training')}>Training</button>
                           </div>
                         )}
+                        {(() => {
+                          const isAbsent = !!(absencesByEmpDay[emp.id]?.has(d));
+                          const shiftsToday = byDay[d];
+                          if (shiftsToday.length === 0) {
+                            return (
+                              <div className="h-[48px] flex items-center justify-center">
+                                {isAbsent ? (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-red-700">Absent</span>
+                                ) : (
+                                  <span className="text-[11px] text-gray-400">—</span>
+                                )}
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="space-y-1.5">
+                              {shiftsToday.map(s => {
+                                const hue = roleHue(String(s.role_code||''));
+                                const confl = (conflictsByShift[s.shift_id] || []).filter(c => c.employee_id === emp.id);
+                                return (
+                                  <div key={`${emp.id}-${s.shift_id}`} className="rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
+                                    <div className="px-2 py-1 flex items-center justify-between gap-2">
+                                      <div className="font-medium truncate" title={s.role_code || 'Shift'}>{s.role_code || 'Shift'}</div>
+                                      <div className="shrink-0 whitespace-nowrap">{s.start_time}–{s.end_time}</div>
+                                    </div>
+                                    {(isAbsent || confl.length>0) && (
+                                      <div className="px-2 pb-1 flex gap-1 flex-wrap">
+                                        {isAbsent && <span className="text-[10px] px-1 rounded bg-red-50 border border-red-200 text-red-700">Absent</span>}
+                                        {confl.length>0 && <span className="text-[10px] px-1 rounded bg-yellow-50 border border-yellow-200 text-yellow-700">{confl.length} conflict</span>}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -358,7 +463,7 @@ export default function Roster(){
                     {days.map(d => {
                       const inCell = g.rows.filter(s => s.shift_date === d);
                       return (
-                        <div key={d} className="p-2 border-r min-h-[72px]">
+                        <div key={d} className="p-1 border-r min-h-[52px]">
                           {inCell.length === 0 ? (
                             <div className="text-[11px] text-gray-400">—</div>
                           ) : (
@@ -369,14 +474,14 @@ export default function Roster(){
                                 const hue = roleHue(String(s.role_code||g.key||''));
                                 const confl = conflictsByShift[s.shift_id] || [];
                                 return (
-                                  <div key={s.shift_id} className="rounded-lg border shadow-xs" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
-                                    <div className="px-2 py-1.5 flex items-center justify-between">
+                                  <div key={s.shift_id} className="rounded border text-[11px]" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
+                                    <div className="px-2 py-0.5 flex items-center justify-between">
                                       <div className="text-xs font-medium">{s.start_time}–{s.end_time}</div>
                                       <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
                                         {assigns.length}/{s.min_staff}
                                       </Badge>
                                     </div>
-                                    <div className="px-2 pb-2">
+                                    <div className="px-2 pb-1">
                                       {assigns.length === 0 ? (
                                         <div className="text-[11px] text-gray-500">Unassigned</div>
                                       ) : (
