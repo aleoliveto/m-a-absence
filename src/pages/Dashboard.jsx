@@ -140,6 +140,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <div className="text-sm text-gray-600">Overview of absence trends and key indicators.</div>
       <Card title="Filters">
         <div className="grid md:grid-cols-5 gap-3">
           <Field label="Base">

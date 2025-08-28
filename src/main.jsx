@@ -14,9 +14,12 @@ function Layout(){
   const idle = 'text-white/90 hover:bg-white/10'
   return (
     <div className="min-h-screen">
-      <header className="bg-orange-600 text-white">
+      <header className="bg-orange-600 text-white sticky top-0 z-40 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-6">
-          <div className="text-lg font-bold tracking-tight">Absence Tracker</div>
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-lg bg-white/20 flex items-center justify-center font-bold">AT</div>
+            <div className="text-lg font-bold tracking-tight">Absence Tracker</div>
+          </div>
           <nav className="flex gap-2">
             <NavLink to="/" end className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Dashboard</NavLink>
             <NavLink to="/employees" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Employees</NavLink>

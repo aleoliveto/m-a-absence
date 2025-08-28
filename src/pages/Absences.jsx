@@ -115,6 +115,10 @@ export default function Absences() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Absences</h1>
+      </div>
+      <div className="text-sm text-gray-600">Track all recorded absences. <span className="ml-2">Showing {view.length} of {rows.length} in range.</span></div>
+
+      <div className="flex items-center justify-between">
         <Button variant="outline" onClick={exportCurrent}>Export CSV</Button>
       </div>
 
@@ -146,70 +150,74 @@ export default function Absences() {
       </Card>
 
       <Card>
-        <Table head={["Employee","Base","Dept","Start","End","Duration","Reason","Notes",""]}>
-          {view.map(r => {
-            const duration = dayDiff(r.start_date, r.end_date);
-            const isLong = duration >= (settings.long_absence_days ?? 7);
-            return (
-              editingId === r.id ? (
-                <tr key={r.id} className="bg-orange-50">
-                  <td className="p-3">
-                    {r.employee?.first_name} {r.employee?.last_name}
-                    <div className="text-xs text-gray-500">{r.employee?.email}</div>
-                  </td>
-                  <td className="p-3">{r.employee?.base}</td>
-                  <td className="p-3">{r.employee?.department}</td>
-                  <td className="p-3">
-                    <Input type="date" value={editForm.start_date}
-                      onChange={e => setEditForm(f => ({ ...f, start_date: e.target.value }))} />
-                  </td>
-                  <td className="p-3">
-                    <Input type="date" value={editForm.end_date}
-                      onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))} />
-                  </td>
-                  <td className="p-3">{dayDiff(editForm.start_date, editForm.end_date)}</td>
-                  <td className="p-3">
-                    <Select value={editForm.reason_code}
-                      onChange={e => setEditForm(f => ({ ...f, reason_code: e.target.value }))}>
-                      {reasons.map(x => <option key={x.code} value={x.code}>{x.code}</option>)}
-                    </Select>
-                  </td>
-                  <td className="p-3">
-                    <Input value={editForm.notes}
-                      onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
-                  </td>
-                  <td className="p-3 whitespace-nowrap">
-                    <Button variant="primary" className="mr-2" onClick={() => saveEdit(r.id)}>Save</Button>
-                    <Button variant="outline" onClick={cancelEdit}>Cancel</Button>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={r.id}>
-                  <td className="p-3">
-                    {r.employee?.first_name} {r.employee?.last_name}
-                    <div className="text-xs text-gray-500">{r.employee?.email}</div>
-                  </td>
-                  <td className="p-3">{r.employee?.base}</td>
-                  <td className="p-3">{r.employee?.department}</td>
-                  <td className="p-3">{r.start_date}</td>
-                  <td className="p-3">{r.end_date}</td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <span>{duration}</span>
-                      {isLong && <Badge tone="warning">Long</Badge>}
-                    </div>
-                  </td>
-                  <td className="p-3">{r.reason_code}</td>
-                  <td className="p-3">{r.notes || ""}</td>
-                  <td className="p-3 whitespace-nowrap">
-                    <Button variant="outline" className="mr-2" onClick={() => startEdit(r)}>Edit</Button>
-                    <Button variant="danger" onClick={() => remove(r.id)}>Delete</Button>
-                  </td>
-                </tr>
-              )
-            );
-          })}
-        </Table>
+        {view.length === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-500">No absences match your filters.</div>
+        ) : (
+          <Table head={["Employee","Base","Dept","Start","End","Duration","Reason","Notes",""]}>
+            {view.map(r => {
+              const duration = dayDiff(r.start_date, r.end_date);
+              const isLong = duration >= (settings.long_absence_days ?? 7);
+              return (
+                editingId === r.id ? (
+                  <tr key={r.id} className="bg-orange-50">
+                    <td className="p-3">
+                      {r.employee?.first_name} {r.employee?.last_name}
+                      <div className="text-xs text-gray-500">{r.employee?.email}</div>
+                    </td>
+                    <td className="p-3">{r.employee?.base}</td>
+                    <td className="p-3">{r.employee?.department}</td>
+                    <td className="p-3">
+                      <Input type="date" value={editForm.start_date}
+                        onChange={e => setEditForm(f => ({ ...f, start_date: e.target.value }))} />
+                    </td>
+                    <td className="p-3">
+                      <Input type="date" value={editForm.end_date}
+                        onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))} />
+                    </td>
+                    <td className="p-3">{dayDiff(editForm.start_date, editForm.end_date)}</td>
+                    <td className="p-3">
+                      <Select value={editForm.reason_code}
+                        onChange={e => setEditForm(f => ({ ...f, reason_code: e.target.value }))}>
+                        {reasons.map(x => <option key={x.code} value={x.code}>{x.code}</option>)}
+                      </Select>
+                    </td>
+                    <td className="p-3">
+                      <Input value={editForm.notes}
+                        onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
+                    </td>
+                    <td className="p-3 whitespace-nowrap">
+                      <Button variant="primary" className="mr-2" onClick={() => saveEdit(r.id)}>Save</Button>
+                      <Button variant="outline" onClick={cancelEdit}>Cancel</Button>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={r.id}>
+                    <td className="p-3">
+                      {r.employee?.first_name} {r.employee?.last_name}
+                      <div className="text-xs text-gray-500">{r.employee?.email}</div>
+                    </td>
+                    <td className="p-3">{r.employee?.base}</td>
+                    <td className="p-3">{r.employee?.department}</td>
+                    <td className="p-3">{r.start_date}</td>
+                    <td className="p-3">{r.end_date}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <span>{duration}</span>
+                        {isLong && <Badge tone="warning">Long</Badge>}
+                      </div>
+                    </td>
+                    <td className="p-3">{r.reason_code}</td>
+                    <td className="p-3">{r.notes || ""}</td>
+                    <td className="p-3 whitespace-nowrap">
+                      <Button variant="outline" className="mr-2" onClick={() => startEdit(r)}>Edit</Button>
+                      <Button variant="danger" onClick={() => remove(r.id)}>Delete</Button>
+                    </td>
+                  </tr>
+                )
+              );
+            })}
+          </Table>
+        )}
       </Card>
     </div>
   );

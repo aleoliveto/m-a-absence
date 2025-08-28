@@ -92,6 +92,7 @@ export default function EmployeeDetail() {
         <div>
           <h1 className="text-xl font-bold">{emp.first_name} {emp.last_name}</h1>
           <div className="text-gray-600">{emp.email} — {emp.base || "—"} / {emp.department || "—"}</div>
+          <div className="text-sm text-gray-500">Status: <span className="font-medium">{emp.status}</span>{emp.role_code ? ` • Role: ${emp.role_code}` : ""}</div>
         </div>
         <div className="flex gap-2">
           {!editing ? (
@@ -148,19 +149,23 @@ export default function EmployeeDetail() {
 
       {/* Absence history */}
       <Card title="Absence History">
-        <Table head={["Start","End","Reason","Notes",""]}>
-          {absences.map(a => (
-            <tr key={a.id}>
-              <td className="p-3">{a.start_date}</td>
-              <td className="p-3">{a.end_date}</td>
-              <td className="p-3">{a.reason_code}</td>
-              <td className="p-3">{a.notes || ""}</td>
-              <td className="p-3 text-right">
-                <Button variant="danger" onClick={() => deleteAbsence(a.id)}>Delete</Button>
-              </td>
-            </tr>
-          ))}
-        </Table>
+        {absences.length === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-500">No absences recorded for this employee.</div>
+        ) : (
+          <Table head={["Start","End","Reason","Notes",""]}>
+            {absences.map(a => (
+              <tr key={a.id}>
+                <td className="p-3">{a.start_date}</td>
+                <td className="p-3">{a.end_date}</td>
+                <td className="p-3">{a.reason_code}</td>
+                <td className="p-3">{a.notes || ""}</td>
+                <td className="p-3 text-right">
+                  <Button variant="danger" onClick={() => deleteAbsence(a.id)}>Delete</Button>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        )}
       </Card>
     </div>
   );

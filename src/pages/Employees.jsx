@@ -76,6 +76,7 @@ export default function Employees() {
           <Button onClick={()=>setShowForm(s=>!s)}>{showForm? "Cancel":"＋ Add Employee"}</Button>
         </div>
       </div>
+      <div className="text-sm text-gray-600">Manage your workforce directory. <span className="ml-2">Showing {view.length} of {rows.length} employees.</span></div>
 
       {showForm && (
         <Card title="New Employee">
@@ -100,31 +101,35 @@ export default function Employees() {
       )}
 
       <Card>
-        <Table head={["Name","Email","Base","Dept","Status","Events (90d)"]}>
-          {view.map(e => {
-            const count = counts90[e.id] || 0;
-            const isFrequent = count >= (settings.frequent_absences_threshold ?? 3);
-            return (
-              <tr key={e.id}>
-                <td className="p-3">
-                  <Link to={`/employees/${e.id}`} className="text-blue-600 hover:underline">
-                    {e.first_name} {e.last_name}
-                  </Link>
-                </td>
-                <td className="p-3">{e.email}</td>
-                <td className="p-3">{e.base}</td>
-                <td className="p-3">{e.department}</td>
-                <td className="p-3"><Badge tone={statusTone(e.status)}>{e.status}</Badge></td>
-                <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <span>{count}</span>
-                    {isFrequent && <Badge tone="danger">Frequent</Badge>}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </Table>
+        {view.length === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-500">No employees match your search.</div>
+        ) : (
+          <Table head={["Name","Email","Base","Dept","Status","Events (90d)"]}>
+            {view.map(e => {
+              const count = counts90[e.id] || 0;
+              const isFrequent = count >= (settings.frequent_absences_threshold ?? 3);
+              return (
+                <tr key={e.id}>
+                  <td className="p-3">
+                    <Link to={`/employees/${e.id}`} className="text-blue-600 hover:underline">
+                      {e.first_name} {e.last_name}
+                    </Link>
+                  </td>
+                  <td className="p-3">{e.email}</td>
+                  <td className="p-3">{e.base}</td>
+                  <td className="p-3">{e.department}</td>
+                  <td className="p-3"><Badge tone={statusTone(e.status)}>{e.status}</Badge></td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <span>{count}</span>
+                      {isFrequent && <Badge tone="danger">Frequent</Badge>}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </Table>
+        )}
       </Card>
     </div>
   );
