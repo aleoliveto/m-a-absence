@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Card, Field, Input, Select, Table, Skeleton, Button } from "../components/ui";
+import { Card, Field, Input, Select, Table, Skeleton } from "../components/ui";
 import {
   Chart as ChartJS,
   LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, BarElement
@@ -17,6 +17,8 @@ export default function Dashboard() {
   const [depts, setDepts] = useState([]);
   const [reasons, setReasons] = useState([]);
 
+  const [settings, setSettings] = useState({ frequent_absences_threshold: 3, long_absence_days: 7 });
+
   const [filters, setFilters] = useState(() => {
     const to = new Date();
     const from = new Date(to.getTime() - 30 * 86400000);
@@ -27,15 +29,19 @@ export default function Dashboard() {
   const [headcount, setHeadcount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // lookups + headcount
+  // lookups + headcount + settings
   useEffect(() => {
     (async () => {
       const { data: emps } = await supabase.from("employee").select("id,base,department").eq("status","active");
       setHeadcount(emps?.length || 0);
       setBases([...new Set((emps||[]).map(e=>e.base).filter(Boolean))].sort());
       setDepts([...new Set((emps||[]).map(e=>e.department).filter(Boolean))].sort());
+
       const { data: rs } = await supabase.from("absence_reason").select("code,label").order("label", { ascending: true });
-      setReasons(rs||[]);
+      setReasons(rs || []);
+
+      const { data: s } = await supabase.from("settings").select("*").eq("id",1).maybeSingle();
+      if (s) setSettings(s);
     })();
   }, []);
 
@@ -63,21 +69,25 @@ export default function Dashboard() {
   // KPIs
   const kpi = useMemo(()=>{
     const current = absences.filter(a=>a.start_date<=todayIso && a.end_date>=todayIso).length;
+
     const since30 = iso(new Date(Date.now()-30*86400000));
     const uniq = new Set(absences.filter(a=>a.start_date>=since30).map(a=>a.employee?.id));
     const pct30 = headcount>0 ? Math.round(10000*uniq.size/headcount)/100 : 0;
+
     const since90 = iso(new Date(Date.now()-90*86400000));
     const countByEmp = {};
     absences.filter(a=>a.start_date>=since90).forEach(a=>{
       const k=a.employee?.id; if(!k) return; countByEmp[k]=(countByEmp[k]||0)+1;
     });
-    const frequent = Object.values(countByEmp).filter(n=>n>=3).length;
+    const frequent = Object.values(countByEmp).filter(n=>n >= settings.frequent_absences_threshold).length;
+
     const durations = absences.map(a=>dayDiff(a.start_date,a.end_date));
     const avgDur = durations.length ? Math.round(10*durations.reduce((s,n)=>s+n,0)/durations.length)/10 : 0;
-    return { current, pct30, frequent, avgDur };
-  }, [absences, headcount]);
 
-  // Top repeat absentees (last 90d)
+    return { current, pct30, frequent, avgDur };
+  }, [absences, headcount, settings.frequent_absences_threshold]);
+
+  // Top repeat absentees (last 90d, using threshold)
   const topRepeat = useMemo(()=>{
     const since90 = iso(new Date(Date.now()-90*86400000));
     const by = new Map();
@@ -146,7 +156,11 @@ export default function Dashboard() {
           </Field>
           <Field label="From"><Input type="date" value={filters.from} onChange={e=>setFilters(f=>({...f,from:e.target.value}))}/></Field>
           <Field label="To"><Input type="date" value={filters.to} onChange={e=>setFilters(f=>({...f,to:e.target.value}))}/></Field>
-          <div className="flex items-end"><div className="text-sm text-gray-600">Headcount: <span className="font-semibold">{headcount}</span></div></div>
+          <div className="flex items-end">
+            <div className="text-sm text-gray-600">
+              Headcount: <span className="font-semibold">{headcount}</span>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -154,8 +168,8 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card title="Current absentees"><div className="text-3xl font-bold">{loading ? <Skeleton className="h-8 w-20"/> : kpi.current}</div></Card>
         <Card title="30-day absence %"><div className="text-3xl font-bold">{loading ? <Skeleton className="h-8 w-24"/> : `${kpi.pct30}%`}</div></Card>
-        <Card title="Frequent absentees (90d)"><div className="text-3xl font-bold">{loading ? <Skeleton className="h-8 w-20"/> : kpi.frequent}</div></Card>
-        <Card title="Avg duration (days)"><div className="text-3xl font-bold">{loading ? <Skeleton className="h-8 w-20"/> : kpi.avgDur}</div></Card>
+        <Card title={`Frequent absentees (≥${settings.frequent_absences_threshold} in 90d)`}><div className="text-3xl font-bold">{loading ? <Skeleton className="h-8 w-20"/> : kpi.frequent}</div></Card>
+        <Card title={`Avg duration (days, long ≥${settings.long_absence_days})`}><div className="text-3xl font-bold">{loading ? <Skeleton className="h-8 w-20"/> : kpi.avgDur}</div></Card>
       </div>
 
       {/* Trends */}
@@ -174,7 +188,7 @@ export default function Dashboard() {
           <Bar data={{ labels: reasonBar.labels, datasets:[{ label:"Count", data: reasonBar.data }] }} options={{ maintainAspectRatio:false }} height={240}/>
         </Card>
 
-        <Card title="Top repeat absentees (last 90 days)">
+        <Card title={`Top repeat absentees (last 90 days, threshold ${settings.frequent_absences_threshold})`}>
           {topRepeat.length === 0 ? (
             <div className="text-sm text-gray-500">No repeat absentees in the selected window.</div>
           ) : (
