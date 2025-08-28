@@ -1,204 +1,89 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { Card, Button, Field, Input, Table, Badge } from "../components/ui";
 
 export default function Employees() {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    base: "",
-    department: "",
-    role_code: "",
-    hire_date: "",
-    status: "active",
+    first_name: "", last_name: "", email: "",
+    base: "", department: "", role_code: "",
+    hire_date: "", status: "active",
   });
 
-  // Load employees
-  useEffect(() => {
-    load();
-  }, []);
-
+  useEffect(() => { load(); }, []);
   async function load() {
-    const { data } = await supabase
-      .from("employee")
-      .select("*")
-      .order("last_name", { ascending: true });
+    const { data } = await supabase.from("employee").select("*").order("last_name", { ascending: true });
     setRows(data || []);
   }
 
   async function addEmployee(e) {
     e.preventDefault();
-    if (!form.email || !form.first_name || !form.last_name) {
-      alert("First name, Last name and Email are required");
-      return;
-    }
+    if (!form.email || !form.first_name || !form.last_name) return alert("First/last name and Email are required");
     const { error } = await supabase.from("employee").insert([form]);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setForm({
-      first_name: "",
-      last_name: "",
-      email: "",
-      base: "",
-      department: "",
-      role_code: "",
-      hire_date: "",
-      status: "active",
-    });
-    setShowForm(false);
-    load();
+    if (error) return alert(error.message);
+    setForm({ first_name:"", last_name:"", email:"", base:"", department:"", role_code:"", hire_date:"", status:"active" });
+    setShowForm(false); load();
   }
 
-  const view = rows.filter(
-    (r) =>
-      (r.first_name + " " + r.last_name)
-        .toLowerCase()
-        .includes(q.toLowerCase()) ||
-      (r.email || "").toLowerCase().includes(q.toLowerCase())
+  const view = rows.filter(r =>
+    (r.first_name+" "+r.last_name).toLowerCase().includes(q.toLowerCase()) ||
+    (r.email||"").toLowerCase().includes(q.toLowerCase())
   );
 
+  const statusTone = s => s==="active" ? "success" : (s==="leave" ? "warning" : "danger");
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Employees</h1>
         <div className="flex gap-2">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search…"
-            className="border rounded px-3 py-2"
-          />
-          <button
-            onClick={() => setShowForm((s) => !s)}
-            className="bg-orange-600 text-white px-3 py-2 rounded"
-          >
-            {showForm ? "Cancel" : "+ Add Employee"}
-          </button>
+          <Input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search…" />
+          <Button onClick={()=>setShowForm(s=>!s)}>{showForm? "Cancel":"＋ Add Employee"}</Button>
         </div>
       </div>
 
-      {/* Add employee form */}
       {showForm && (
-        <form
-          onSubmit={addEmployee}
-          className="bg-white rounded shadow p-4 space-y-3"
-        >
-          <div className="grid md:grid-cols-3 gap-3">
-            <input
-              placeholder="First name"
-              value={form.first_name}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, first_name: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <input
-              placeholder="Last name"
-              value={form.last_name}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, last_name: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <input
-              placeholder="Email"
-              value={form.email}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, email: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <input
-              placeholder="Base (e.g. LTN)"
-              value={form.base}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, base: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <input
-              placeholder="Department"
-              value={form.department}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, department: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <input
-              placeholder="Role code"
-              value={form.role_code}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, role_code: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <input
-              type="date"
-              value={form.hire_date}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, hire_date: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            />
-            <select
-              value={form.status}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, status: e.target.value }))
-              }
-              className="border rounded px-3 py-2"
-            >
-              <option value="active">Active</option>
-              <option value="leave">Leave</option>
-              <option value="terminated">Terminated</option>
-            </select>
-          </div>
-          <button
-            type="submit"
-            className="bg-green-600 text-white px-4 py-2 rounded"
-          >
-            Save Employee
-          </button>
-        </form>
+        <Card title="New Employee">
+          <form onSubmit={addEmployee} className="grid md:grid-cols-3 gap-3">
+            <Field label="First name"><Input value={form.first_name} onChange={e=>setForm(f=>({...f,first_name:e.target.value}))}/></Field>
+            <Field label="Last name"><Input value={form.last_name} onChange={e=>setForm(f=>({...f,last_name:e.target.value}))}/></Field>
+            <Field label="Email"><Input value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></Field>
+            <Field label="Base"><Input value={form.base} onChange={e=>setForm(f=>({...f,base:e.target.value}))}/></Field>
+            <Field label="Department"><Input value={form.department} onChange={e=>setForm(f=>({...f,department:e.target.value}))}/></Field>
+            <Field label="Role code"><Input value={form.role_code} onChange={e=>setForm(f=>({...f,role_code:e.target.value}))}/></Field>
+            <Field label="Hire date"><Input type="date" value={form.hire_date} onChange={e=>setForm(f=>({...f,hire_date:e.target.value}))}/></Field>
+            <Field label="Status">
+              <select className="border rounded-lg px-3 py-2 w-full" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
+                <option value="active">Active</option>
+                <option value="leave">Leave</option>
+                <option value="terminated">Terminated</option>
+              </select>
+            </Field>
+            <div className="md:col-span-3"><Button type="submit">Save Employee</Button></div>
+          </form>
+        </Card>
       )}
 
-      {/* Table of employees */}
-      <div className="bg-white rounded shadow overflow-auto">
-        <table className="min-w-full">
-          <thead>
-            <tr className="text-left text-sm text-gray-600">
-              <th className="p-3">Name</th>
-              <th className="p-3">Email</th>
-              <th className="p-3">Base</th>
-              <th className="p-3">Dept</th>
-              <th className="p-3">Status</th>
+      <Card>
+        <Table head={["Name","Email","Base","Dept","Status"]}>
+          {view.map(e=>(
+            <tr key={e.id}>
+              <td className="p-3">
+                <Link to={`/employees/${e.id}`} className="text-blue-600 hover:underline">
+                  {e.first_name} {e.last_name}
+                </Link>
+              </td>
+              <td className="p-3">{e.email}</td>
+              <td className="p-3">{e.base}</td>
+              <td className="p-3">{e.department}</td>
+              <td className="p-3"><Badge tone={statusTone(e.status)}>{e.status}</Badge></td>
             </tr>
-          </thead>
-          <tbody>
-            {view.map((e) => (
-              <tr key={e.id} className="border-t">
-                <td className="p-3">
-                  <Link
-                    to={`/employees/${e.id}`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    {e.first_name} {e.last_name}
-                  </Link>
-                </td>
-                <td className="p-3">{e.email}</td>
-                <td className="p-3">{e.base}</td>
-                <td className="p-3">{e.department}</td>
-                <td className="p-3">{e.status}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </Table>
+      </Card>
     </div>
   );
 }
