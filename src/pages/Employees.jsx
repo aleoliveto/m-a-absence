@@ -85,7 +85,7 @@ export default function Employees() {
             <Field label="First name"><Input value={form.first_name} onChange={e=>setForm(f=>({...f,first_name:e.target.value}))}/></Field>
             <Field label="Last name"><Input value={form.last_name} onChange={e=>setForm(f=>({...f,last_name:e.target.value}))}/></Field>
             <Field label="Email"><Input value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></Field>
-            <Field label="Base"><Input value={form.base} onChange={e=>setForm(f=>({...f,base:e.target.value}))}/></Field>
+            <Field label="Team"><Input value={form.base} onChange={e=>setForm(f=>({...f,base:e.target.value}))}/></Field>
             <Field label="Department"><Input value={form.department} onChange={e=>setForm(f=>({...f,department:e.target.value}))}/></Field>
             <Field label="Role code"><Input value={form.role_code} onChange={e=>setForm(f=>({...f,role_code:e.target.value}))}/></Field>
             <Field label="Hire date"><Input type="date" value={form.hire_date} onChange={e=>setForm(f=>({...f,hire_date:e.target.value}))}/></Field>
@@ -105,7 +105,7 @@ export default function Employees() {
         {view.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">No employees match your search.</div>
         ) : (
-          <Table head={["Name","Email","Base","Dept","Status","Events (90d)"]}>
+          <Table head={["Name","Email","Team","Dept","Status","Events (90d)"]}>
             {view.map(e => {
               const count = counts90[e.id] || 0;
               const isFrequent = count >= (settings.frequent_absences_threshold ?? 3);

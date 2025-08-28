@@ -126,7 +126,7 @@ export default function Absences() {
 
       <Card title="Filters">
         <div className="grid md:grid-cols-6 gap-3">
-          <Field label="Base">
+          <Field label="Team">
             <Select value={filters.base} onChange={e => setFilters(f => ({ ...f, base: e.target.value }))}>
               <option value="">All</option>
               {bases.map(b => <option key={b} value={b}>{b}</option>)}
@@ -155,7 +155,7 @@ export default function Absences() {
         {view.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">No absences match your filters.</div>
         ) : (
-          <Table head={["Employee","Base","Dept","Start","End","Duration","Reason","Notes",""]}>
+          <Table head={["Employee","Team","Dept","Start","End","Duration","Reason","Notes",""]}>
             {view.map(r => {
               const duration = dayDiff(r.start_date, r.end_date);
               const isLong = duration >= (settings.long_absence_days ?? 7);

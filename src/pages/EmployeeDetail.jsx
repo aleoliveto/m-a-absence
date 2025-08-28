@@ -119,7 +119,7 @@ export default function EmployeeDetail() {
             <Field label="First name"><Input value={editForm.first_name} onChange={e=>setEditForm(f=>({...f,first_name:e.target.value}))} /></Field>
             <Field label="Last name"><Input value={editForm.last_name} onChange={e=>setEditForm(f=>({...f,last_name:e.target.value}))} /></Field>
             <Field label="Email"><Input value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))} /></Field>
-            <Field label="Base"><Input value={editForm.base} onChange={e=>setEditForm(f=>({...f,base:e.target.value}))} /></Field>
+            <Field label="Team"><Input value={editForm.base} onChange={e=>setEditForm(f=>({...f,base:e.target.value}))} /></Field>
             <Field label="Department"><Input value={editForm.department} onChange={e=>setEditForm(f=>({...f,department:e.target.value}))} /></Field>
             <Field label="Role code"><Input value={editForm.role_code} onChange={e=>setEditForm(f=>({...f,role_code:e.target.value}))} /></Field>
             <Field label="Hire date"><Input type="date" value={editForm.hire_date || ""} onChange={e=>setEditForm(f=>({...f,hire_date:e.target.value}))} /></Field>

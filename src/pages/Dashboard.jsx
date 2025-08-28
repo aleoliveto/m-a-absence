@@ -143,9 +143,9 @@ export default function Dashboard() {
       <div className="text-sm text-gray-600">Overview of absence trends and key indicators.</div>
       <Card title="Filters">
         <div className="grid md:grid-cols-5 gap-3">
-          <Field label="Base">
+          <Field label="Team">
             <Select value={filters.base} onChange={e=>setFilters(f=>({...f,base:e.target.value}))}>
-              <option value="">All bases</option>
+              <option value="">All teams</option>
               {bases.map(b=><option key={b} value={b}>{b}</option>)}
             </Select>
           </Field>
@@ -193,7 +193,7 @@ export default function Dashboard() {
           {topRepeat.length === 0 ? (
             <div className="text-sm text-gray-500">No repeat absentees in the selected window.</div>
           ) : (
-            <Table head={["Employee","Base","Dept","Events (90d)"]}>
+            <Table head={["Employee","Team","Dept","Events (90d)"]}>
               {topRepeat.map(x=>(
                 <tr key={x.emp.id}>
                   <td className="p-3">{x.emp.first_name} {x.emp.last_name}</td>
