@@ -7,6 +7,8 @@ import Employees from './pages/Employees.jsx'
 import EmployeeDetail from './pages/EmployeeDetail.jsx'
 import Absences from './pages/Absences.jsx'
 import Settings from './pages/Settings.jsx'
+import Roster from './pages/Roster.jsx'
+import { Toaster } from './components/ui'
 
 function Layout(){
   const linkBase = 'px-3 py-2 rounded-lg text-sm font-medium transition-colors'
@@ -24,8 +26,18 @@ function Layout(){
             <NavLink to="/" end className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Dashboard</NavLink>
             <NavLink to="/employees" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Employees</NavLink>
             <NavLink to="/absences" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Absences</NavLink>
+            <NavLink to="/roster" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Roster</NavLink>
             <NavLink to="/settings" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Settings</NavLink>
           </nav>
+          <div className="ml-auto">
+            <button
+              onClick={() => { document.body.classList.toggle('dense'); }}
+              className="px-3 py-1.5 rounded-lg text-sm bg-white/10 hover:bg-white/20"
+              title="Toggle compact mode"
+            >
+              Compact
+            </button>
+          </div>
         </div>
       </header>
       <main className="max-w-6xl mx-auto p-4 space-y-6">
@@ -34,12 +46,14 @@ function Layout(){
           <Route path="/employees" element={<Employees/>}/>
           <Route path="/employees/:id" element={<EmployeeDetail/>}/>
           <Route path="/absences" element={<Absences/>}/>
+          <Route path="/roster" element={<Roster/>}/>
           <Route path="/settings" element={<Settings/>}/>
         </Routes>
         <footer className="py-6 text-center text-xs text-gray-500">
           © {new Date().getFullYear()} Absence Tracker
         </footer>
       </main>
+      <Toaster />
     </div>
   )
 }

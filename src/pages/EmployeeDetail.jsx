@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Card, Button, Field, Input, Select, Table } from "../components/ui";
+import { Card, Button, Field, Input, Select, Table, toast } from "../components/ui";
 
 export default function EmployeeDetail() {
   const { id } = useParams();
@@ -45,11 +45,12 @@ export default function EmployeeDetail() {
   }
 
   async function addAbsence() {
-    if (!form.start_date || !form.end_date) return alert("Enter start and end dates");
-    if (form.end_date < form.start_date) return alert("End date must be after start");
+    if (!form.start_date || !form.end_date) return toast("Enter start and end dates", "warning");
+    if (form.end_date < form.start_date) return toast("End date must be after start", "warning");
     const { error } = await supabase
       .from("absence").insert([{ employee_id: id, ...form, created_by: "admin@app" }]);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Absence added", "success");
     setForm({ start_date: "", end_date: "", reason_code: reasons[0]?.code || "SICK", notes: "" });
     const { data: a } = await supabase
       .from("absence").select("*").eq("employee_id", id).order("start_date", { ascending: false });
@@ -59,24 +60,27 @@ export default function EmployeeDetail() {
   async function saveEmployee(e) {
     e.preventDefault();
     if (!editForm.first_name || !editForm.last_name || !editForm.email) {
-      return alert("First name, Last name and Email are required");
+      return toast("First name, Last name and Email are required", "warning");
     }
     const { error } = await supabase.from("employee").update(editForm).eq("id", id);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Employee updated", "success");
     setEditing(false); load();
   }
 
   async function deleteEmployee() {
     if (!window.confirm("Delete this employee? This will also remove their absences.")) return;
     const { error } = await supabase.from("employee").delete().eq("id", id);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Employee deleted", "success");
     navigate("/employees");
   }
 
   async function deleteAbsence(absId) {
     if (!window.confirm("Delete this absence?")) return;
     const { error } = await supabase.from("absence").delete().eq("id", absId);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Absence deleted", "success");
     const { data: a } = await supabase
       .from("absence").select("*").eq("employee_id", id).order("start_date", { ascending: false });
     setAbsences(a || []);

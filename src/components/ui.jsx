@@ -1,3 +1,5 @@
+import React from "react";
+
 // Minimal Tailwind UI primitives — no external deps
 export function Card(props) {
   const { title, actions, children } = props;
@@ -72,7 +74,7 @@ export function Table({ head, children }) {
     <div className="overflow-auto rounded-xl border border-gray-100">
       <table className="min-w-full text-sm">
         {head && (
-          <thead className="bg-gray-50 text-gray-600">
+          <thead className="bg-gray-50 text-gray-600 sticky top-0 z-10">
             <tr>
               {head.map((h, i) => (
                 <th key={i} className="p-3 text-left font-medium">{h}</th>
@@ -80,7 +82,7 @@ export function Table({ head, children }) {
             </tr>
           </thead>
         )}
-        <tbody className="[&>tr]:border-t [&>tr]:border-gray-100">
+        <tbody className="[&>tr]:border-t [&>tr]:border-gray-100 [&>tr:nth-child(odd)]:bg-gray-50/30 [&>tr:hover]:bg-gray-50">
           {children}
         </tbody>
       </table>
@@ -97,6 +99,43 @@ export function EmptyState({ title="No data", hint="" }) {
     <div className="text-center text-gray-500 py-10">
       <div className="text-lg font-medium">{title}</div>
       {hint && <div className="text-sm mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+// --- Lightweight toast system (no deps)
+let __toast_id = 0;
+export function toast(message, tone = "info") {
+  const detail = { id: ++__toast_id, message, tone, ttl: 3000 };
+  window.dispatchEvent(new CustomEvent("app:toast", { detail }));
+}
+
+export function Toaster() {
+  const [items, setItems] = React.useState([]);
+  React.useEffect(() => {
+    function onToast(e){
+      const t = e.detail;
+      setItems(prev => [...prev, t]);
+      setTimeout(()=>{
+        setItems(prev => prev.filter(x => x.id !== t.id));
+      }, t.ttl || 3000);
+    }
+    window.addEventListener("app:toast", onToast);
+    return () => window.removeEventListener("app:toast", onToast);
+  }, []);
+  const toneMap = {
+    info: "bg-gray-900 text-white",
+    success: "bg-green-600 text-white",
+    warning: "bg-yellow-600 text-white",
+    danger: "bg-red-600 text-white",
+  };
+  return (
+    <div className="fixed bottom-4 right-4 z-[100] space-y-2">
+      {items.map(t => (
+        <div key={t.id} className={`px-3 py-2 rounded-lg shadow-lg ${toneMap[t.tone] || toneMap.info}`}>
+          <div className="text-sm">{t.message}</div>
+        </div>
+      ))}
     </div>
   );
 }

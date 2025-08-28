@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Card, Button, Field, Input, Table, Badge } from "../components/ui";
+import { Card, Button, Field, Input, Table, Badge, toast } from "../components/ui";
 
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
 
@@ -50,11 +50,12 @@ export default function Employees() {
 
   async function addEmployee(e) {
     e.preventDefault();
-    if (!form.email || !form.first_name || !form.last_name) return alert("First/last name and Email are required");
+    if (!form.email || !form.first_name || !form.last_name) return toast("First/last name and Email are required", "warning");
     const { error } = await supabase.from("employee").insert([form]);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
     setForm({ first_name:"", last_name:"", email:"", base:"", department:"", role_code:"", hire_date:"", status:"active" });
     setShowForm(false);
+    toast("Employee added", "success");
     loadAll();
   }
 

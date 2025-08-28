@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { exportCsv } from "../lib/exportCsv";
-import { Card, Button, Field, Input, Select, Table, Badge } from "../components/ui";
+import { Card, Button, Field, Input, Select, Table, Badge, toast } from "../components/ui";
 
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
 const dayDiff = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) / 86400000) + 1);
@@ -80,16 +80,18 @@ export default function Absences() {
   }
   function cancelEdit() { setEditingId(null); }
   async function saveEdit(id) {
-    if (!editForm.start_date || !editForm.end_date) return alert("Start and end dates are required");
-    if (editForm.end_date < editForm.start_date) return alert("End date must be after start date");
+    if (!editForm.start_date || !editForm.end_date) return toast("Start and end dates are required", "warning");
+    if (editForm.end_date < editForm.start_date) return toast("End date must be after start date", "warning");
     const { error } = await supabase.from("absence").update(editForm).eq("id", id);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Absence updated", "success");
     cancelEdit(); load();
   }
   async function remove(id) {
     if (!window.confirm("Delete this absence record?")) return;
     const { error } = await supabase.from("absence").delete().eq("id", id);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Absence deleted", "success");
     load();
   }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Card, Button, Field, Input, Table } from "../components/ui";
+import { Card, Button, Field, Input, Table, toast } from "../components/ui";
 
 export default function Settings(){
   const [settings, setSettings] = useState({ frequent_absences_threshold: 3, long_absence_days: 7 });
@@ -23,23 +23,26 @@ export default function Settings(){
       long_absence_days: Number(settings.long_absence_days || 7),
     };
     const { error } = await supabase.from("settings").upsert({ id:1, ...payload });
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Thresholds saved", "success");
     load();
   }
 
   async function addReason(e){
     e.preventDefault();
-    if (!newReason.code || !newReason.label) return alert("Code and label required");
+    if (!newReason.code || !newReason.label) return toast("Code and label required", "warning");
     const { error } = await supabase.from("absence_reason").insert([newReason]);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
     setNewReason({ code: "", label: "", reportable: true, paid: true });
+    toast("Reason added", "success");
     load();
   }
 
   async function deleteReason(code){
     if (!window.confirm(`Delete reason ${code}?`)) return;
     const { error } = await supabase.from("absence_reason").delete().eq("code", code);
-    if (error) return alert(error.message);
+    if (error) return toast(error.message, "danger");
+    toast("Reason deleted", "success");
     load();
   }
 
