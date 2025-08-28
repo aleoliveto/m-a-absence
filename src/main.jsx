@@ -8,17 +8,44 @@ import EmployeeDetail from './pages/EmployeeDetail.jsx'
 import Absences from './pages/Absences.jsx'
 
 function Layout(){
-  const link = 'px-3 py-2 rounded hover:bg-gray-100'
-  const active = 'bg-white shadow-sm'
+  const base = 'px-3 py-2 rounded transition-colors'
   return (
     <div className="min-h-screen">
       <header className="bg-orange-600 text-white">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
           <div className="font-bold">Absence Tracker</div>
           <nav className="flex gap-2">
-            <NavLink to="/" end className={({isActive})=>`${link} ${isActive?active:''}`}>Dashboard</NavLink>
-            <NavLink to="/employees" className={({isActive})=>`${link} ${isActive?active:''}`}>Employees</NavLink>
-            <NavLink to="/absences" className={({isActive})=>`${link} ${isActive?active:''}`}>Absences</NavLink>
+            <NavLink
+              to="/"
+              end
+              className={({isActive}) =>
+                isActive
+                  ? `${base} bg-white text-orange-700 shadow-sm`
+                  : `${base} text-white/90 hover:bg-white/10`
+              }
+            >
+              Dashboard
+            </NavLink>
+            <NavLink
+              to="/employees"
+              className={({isActive}) =>
+                isActive
+                  ? `${base} bg-white text-orange-700 shadow-sm`
+                  : `${base} text-white/90 hover:bg-white/10`
+              }
+            >
+              Employees
+            </NavLink>
+            <NavLink
+              to="/absences"
+              className={({isActive}) =>
+                isActive
+                  ? `${base} bg-white text-orange-700 shadow-sm`
+                  : `${base} text-white/90 hover:bg-white/10`
+              }
+            >
+              Absences
+            </NavLink>
           </nav>
         </div>
       </header>
