@@ -1,13 +1,14 @@
 // Minimal Tailwind UI primitives — no external deps
-export function Card({ title, actions, children }) {
+export function Card(props) {
+  const { title, actions, children } = props;
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-      {(title || actions) && (
+      {(title || actions) ? (
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+          {title && <h3 className="text-sm font-semibold text-gray-800">{title}</h3>}
           {actions}
         </div>
-      )}
+      ) : null}
       <div className="p-4">{children}</div>
     </div>
   );
@@ -47,11 +48,23 @@ export function Field({ label, children }) {
     </label>
   );
 }
+
 export function Input(props) {
-  return <input className="border rounded-lg px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-orange-300" {...props} />;
+  return (
+    <input
+      className="border rounded-lg px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-orange-300"
+      {...props}
+    />
+  );
 }
+
 export function Select(props) {
-  return <select className="border rounded-lg px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-orange-300" {...props} />;
+  return (
+    <select
+      className="border rounded-lg px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-orange-300"
+      {...props}
+    />
+  );
 }
 
 export function Table({ head, children }) {
@@ -61,7 +74,7 @@ export function Table({ head, children }) {
         {head && (
           <thead className="bg-gray-50 text-gray-600">
             <tr>
-              {head.map((h,i)=>(
+              {head.map((h, i) => (
                 <th key={i} className="p-3 text-left font-medium">{h}</th>
               ))}
             </tr>
