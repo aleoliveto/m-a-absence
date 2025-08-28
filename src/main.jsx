@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import Employees from './pages/Employees.jsx'
 import EmployeeDetail from './pages/EmployeeDetail.jsx'
 import Absences from './pages/Absences.jsx'
+import Settings from './pages/Settings.jsx'
 
 function Layout(){
   const linkBase = 'px-3 py-2 rounded-lg text-sm font-medium transition-colors'
@@ -20,6 +21,7 @@ function Layout(){
             <NavLink to="/" end className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Dashboard</NavLink>
             <NavLink to="/employees" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Employees</NavLink>
             <NavLink to="/absences" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Absences</NavLink>
+            <NavLink to="/settings" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Settings</NavLink>
           </nav>
         </div>
       </header>
@@ -29,6 +31,7 @@ function Layout(){
           <Route path="/employees" element={<Employees/>}/>
           <Route path="/employees/:id" element={<EmployeeDetail/>}/>
           <Route path="/absences" element={<Absences/>}/>
+          <Route path="/settings" element={<Settings/>}/>
         </Routes>
         <footer className="py-6 text-center text-xs text-gray-500">
           © {new Date().getFullYear()} Absence Tracker
