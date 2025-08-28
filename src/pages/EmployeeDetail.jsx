@@ -325,15 +325,33 @@ export default function EmployeeDetail() {
             </tr>
           </thead>
           <tbody>
-            {absences.map((a) => (
-              <tr key={a.id} className="border-t">
-                <td className="p-3">{a.start_date}</td>
-                <td className="p-3">{a.end_date}</td>
-                <td className="p-3">{a.reason_code}</td>
-                <td className="p-3">{a.notes || ""}</td>
-              </tr>
-            ))}
-          </tbody>
+  {absences.map((a) => (
+    <tr key={a.id} className="border-t">
+      <td className="p-3">{a.start_date}</td>
+      <td className="p-3">{a.end_date}</td>
+      <td className="p-3">{a.reason_code}</td>
+      <td className="p-3">{a.notes || ""}</td>
+      <td className="p-3 text-right">
+        <button
+          onClick={async () => {
+            if (!window.confirm("Delete this absence?")) return;
+            const { error } = await supabase.from("absence").delete().eq("id", a.id);
+            if (error) return alert(error.message);
+            const { data: fresh } = await supabase
+              .from("absence")
+              .select("*")
+              .eq("employee_id", id)
+              .order("start_date", { ascending: false });
+            setAbsences(fresh || []);
+          }}
+          className="bg-red-600 text-white px-3 py-1 rounded"
+        >
+          Delete
+        </button>
+      </td>
+    </tr>
+  ))}
+</tbody>
         </table>
       </div>
     </div>
