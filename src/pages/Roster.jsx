@@ -13,6 +13,8 @@ const weekStart = (d) => {
   return x;
 };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const timeToMinutes = (t) => { const [h,m] = (t||"0:0").split(":").map(Number); return h*60 + m; };
+const shiftHours = (start,end) => Math.max(0, (timeToMinutes(end) - timeToMinutes(start)) / 60);
 
 export default function Roster(){
   const [bases, setBases] = useState([]);
@@ -166,6 +168,41 @@ export default function Roster(){
     return [...by.values()].sort((a,b)=> String(a.key).localeCompare(String(b.key)));
   }, [shifts, groupBy]);
 
+  const employeeRows = useMemo(() => {
+    if (groupBy !== 'employee') return [];
+    const byId = new Map();
+
+    // Respect Team/Dept filters
+    const emps = (employees || []).filter(e =>
+      (!filters.base || e.base === filters.base) &&
+      (!filters.dept || e.department === filters.dept)
+    );
+
+    // Initialize empty day-buckets for each employee in the filtered list
+    emps.forEach(e => byId.set(
+      e.id,
+      { emp: e, byDay: Object.fromEntries(days.map(d => [d, []])), totalHrs: 0 }
+    ));
+
+    // Fill buckets with the shifts the employee is assigned to for that day
+    (shifts || []).forEach(s => {
+      const assigns = assignmentsByShift[s.shift_id] || [];
+      assigns.forEach(a => {
+        const row = byId.get(a.employee_id);
+        if (!row) return; // filtered out
+        row.byDay[s.shift_date].push(s);
+        row.totalHrs += shiftHours(s.start_time, s.end_time);
+      });
+    });
+
+    // Sort employees by Last, First
+    return [...byId.values()].sort((a, b) => {
+      const an = `${a.emp.last_name || ''} ${a.emp.first_name || ''}`.trim().toLowerCase();
+      const bn = `${b.emp.last_name || ''} ${b.emp.first_name || ''}`.trim().toLowerCase();
+      return an.localeCompare(bn);
+    });
+  }, [groupBy, employees, filters.base, filters.dept, shifts, assignmentsByShift, days]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -215,6 +252,7 @@ export default function Roster(){
               <option value="role_code">Function / Role</option>
               <option value="department">Department</option>
               <option value="base">Team</option>
+              <option value="employee">Employee</option>
             </Select>
           </Field>
           <div className="md:col-span-2 flex items-end">
@@ -256,80 +294,127 @@ export default function Roster(){
                 ))}
               </div>
 
-              {/* Group rows */}
-              {grouped.map(g => (
-                <div key={g.key} className="grid border-t" style={{gridTemplateColumns: `220px repeat(7, 1fr)`}}>
-                  {/* Group label */}
-                  <div className="p-3 bg-gray-50/60 border-r">
-                    <div className="text-sm font-semibold flex items-center gap-2">
-                      {groupBy === 'role_code' && (
-                        <span className="inline-block h-3 w-3 rounded" style={{background:`hsl(${roleHue(String(g.key))},80%,70%)`}} />
-                      )}
-                      {String(g.key) || '—'}
+              {/* Rows */}
+              {groupBy === 'employee' ? (
+                employeeRows.map(({ emp, byDay, totalHrs }) => (
+                  <div key={emp.id} className="grid border-t" style={{gridTemplateColumns: `220px repeat(7, 1fr)`}}>
+                    {/* Left: employee identity + weekly total */}
+                    <div className="p-3 bg-gray-50/60 border-r">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium">
+                            {(emp.first_name?.[0]||'').toUpperCase()}{(emp.last_name?.[0]||'').toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold">{emp.first_name} {emp.last_name}</div>
+                            <div className="text-[11px] text-gray-500">{emp.base || '—'} / {emp.department || '—'}</div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-600">{Math.round(totalHrs*10)/10}h</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">{g.rows.length} shift{g.rows.length!==1?'s':''}</div>
-                  </div>
 
-                  {/* 7 day cells */}
-                  {days.map(d => {
-                    const inCell = g.rows.filter(s => s.shift_date === d);
-                    return (
+                    {/* Day cells */}
+                    {days.map(d => (
                       <div key={d} className="p-2 border-r min-h-[72px]">
-                        {inCell.length === 0 ? (
+                        {byDay[d].length === 0 ? (
                           <div className="text-[11px] text-gray-400">—</div>
                         ) : (
                           <div className="space-y-2">
-                            {inCell.map(s => {
-                              const assigns = assignmentsByShift[s.shift_id] || [];
-                              const remaining = Math.max(0, s.min_staff - assigns.length);
-                              const hue = roleHue(String(s.role_code||g.key||''));
-                              const confl = conflictsByShift[s.shift_id] || [];
+                            {byDay[d].map(s => {
+                              const hue = roleHue(String(s.role_code||''));
+                              const confl = (conflictsByShift[s.shift_id] || []).filter(c => c.employee_id === emp.id);
                               return (
-                                <div key={s.shift_id} className="rounded-lg border shadow-xs" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
-                                  <div className="px-2 py-1.5 flex items-center justify-between">
-                                    <div className="text-xs font-medium">{s.start_time}–{s.end_time}</div>
-                                    <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
-                                      {assigns.length}/{s.min_staff}
-                                    </Badge>
+                                <div key={`${emp.id}-${s.shift_id}`} className="rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
+                                  <div className="px-2 py-1 flex items-center justify-between">
+                                    <div className="font-medium">{s.role_code || 'Shift'}</div>
+                                    {confl.length>0 && <span className="text-red-700 bg-red-50 border border-red-200 rounded px-1">{confl.length} conflict</span>}
                                   </div>
-                                  <div className="px-2 pb-2">
-                                    {assigns.length === 0 ? (
-                                      <div className="text-[11px] text-gray-500">Unassigned</div>
-                                    ) : (
-                                      <div className="flex flex-wrap gap-1">
-                                        {assigns.slice(0,2).map(a => (
-                                          <span key={a.id} className="text-[11px] bg-white/80 border rounded px-1.5 py-0.5">
-                                            {a.employee?.first_name} {a.employee?.last_name}
-                                          </span>
-                                        ))}
-                                        {assigns.length > 2 && (
-                                          <span className="text-[11px] text-gray-600">+{assigns.length-2} more</span>
-                                        )}
-                                        {confl.length>0 && (
-                                          <span className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">{confl.length} conflict</span>
-                                        )}
-                                      </div>
-                                    )}
-                                    <div className="mt-2 flex gap-1">
-                                      <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
-                                        <option value="">Add…</option>
-                                        {employees.map(emp => (
-                                          <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
-                                        ))}
-                                      </Select>
-                                      <Button onClick={()=>assign(s.shift_id)}>Add</Button>
-                                    </div>
-                                  </div>
+                                  <div className="px-2 pb-1">{s.start_time} – {s.end_time}</div>
                                 </div>
                               );
                             })}
                           </div>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              ))}
+                    ))}
+                  </div>
+                ))
+              ) : (
+                grouped.map(g => (
+                  <div key={g.key} className="grid border-t" style={{gridTemplateColumns: `220px repeat(7, 1fr)`}}>
+                    {/* Group label */}
+                    <div className="p-3 bg-gray-50/60 border-r">
+                      <div className="text-sm font-semibold flex items-center gap-2">
+                        {groupBy === 'role_code' && (
+                          <span className="inline-block h-3 w-3 rounded" style={{background:`hsl(${roleHue(String(g.key))},80%,70%)`}} />
+                        )}
+                        {String(g.key) || '—'}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">{g.rows.length} shift{g.rows.length!==1?'s':''}</div>
+                    </div>
+
+                    {/* 7 day cells */}
+                    {days.map(d => {
+                      const inCell = g.rows.filter(s => s.shift_date === d);
+                      return (
+                        <div key={d} className="p-2 border-r min-h-[72px]">
+                          {inCell.length === 0 ? (
+                            <div className="text-[11px] text-gray-400">—</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {inCell.map(s => {
+                                const assigns = assignmentsByShift[s.shift_id] || [];
+                                const remaining = Math.max(0, s.min_staff - assigns.length);
+                                const hue = roleHue(String(s.role_code||g.key||''));
+                                const confl = conflictsByShift[s.shift_id] || [];
+                                return (
+                                  <div key={s.shift_id} className="rounded-lg border shadow-xs" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
+                                    <div className="px-2 py-1.5 flex items-center justify-between">
+                                      <div className="text-xs font-medium">{s.start_time}–{s.end_time}</div>
+                                      <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
+                                        {assigns.length}/{s.min_staff}
+                                      </Badge>
+                                    </div>
+                                    <div className="px-2 pb-2">
+                                      {assigns.length === 0 ? (
+                                        <div className="text-[11px] text-gray-500">Unassigned</div>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1">
+                                          {assigns.slice(0,2).map(a => (
+                                            <span key={a.id} className="text-[11px] bg-white/80 border rounded px-1.5 py-0.5">
+                                              {a.employee?.first_name} {a.employee?.last_name}
+                                            </span>
+                                          ))}
+                                          {assigns.length > 2 && (
+                                            <span className="text-[11px] text-gray-600">+{assigns.length-2} more</span>
+                                          )}
+                                          {confl.length>0 && (
+                                            <span className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">{confl.length} conflict</span>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="mt-2 flex gap-1">
+                                        <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
+                                          <option value="">Add…</option>
+                                          {employees.map(emp => (
+                                            <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
+                                          ))}
+                                        </Select>
+                                        <Button onClick={()=>assign(s.shift_id)}>Add</Button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </Card>
