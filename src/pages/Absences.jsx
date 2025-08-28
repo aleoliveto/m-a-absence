@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { exportCsv } from "../lib/exportCsv";
-import { Card, Button, Field, Input, Select, Table } from "../components/ui";
+import { Card, Button, Field, Input, Select, Table, Badge } from "../components/ui";
 
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
+const dayDiff = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) / 86400000) + 1);
 
 export default function Absences() {
   const [rows, setRows] = useState([]);
   const [bases, setBases] = useState([]);
   const [depts, setDepts] = useState([]);
   const [reasons, setReasons] = useState([]);
+  const [settings, setSettings] = useState({ long_absence_days: 7 });
 
   const [filters, setFilters] = useState(() => {
     const to = new Date();
@@ -25,7 +27,7 @@ export default function Absences() {
     notes: "",
   });
 
-  // Lookup lists
+  // Lookup lists + settings
   useEffect(() => {
     (async () => {
       const { data: emps } = await supabase
@@ -36,6 +38,9 @@ export default function Absences() {
       const { data: rs } = await supabase
         .from("absence_reason").select("code,label").order("label", { ascending: true });
       setReasons(rs || []);
+
+      const { data: s } = await supabase.from("settings").select("*").eq("id",1).maybeSingle();
+      if (s) setSettings(s);
     })();
   }, []);
 
@@ -94,6 +99,7 @@ export default function Absences() {
       view.map(r => ({
         start_date: r.start_date,
         end_date: r.end_date,
+        duration_days: dayDiff(r.start_date, r.end_date),
         reason_code: r.reason_code,
         notes: r.notes || "",
         first_name: r.employee?.first_name,
@@ -140,58 +146,69 @@ export default function Absences() {
       </Card>
 
       <Card>
-        <Table head={["Employee","Base","Dept","Start","End","Reason","Notes",""]}>
-          {view.map(r => (
-            editingId === r.id ? (
-              <tr key={r.id} className="bg-orange-50">
-                <td className="p-3">
-                  {r.employee?.first_name} {r.employee?.last_name}
-                  <div className="text-xs text-gray-500">{r.employee?.email}</div>
-                </td>
-                <td className="p-3">{r.employee?.base}</td>
-                <td className="p-3">{r.employee?.department}</td>
-                <td className="p-3">
-                  <Input type="date" value={editForm.start_date}
-                    onChange={e => setEditForm(f => ({ ...f, start_date: e.target.value }))} />
-                </td>
-                <td className="p-3">
-                  <Input type="date" value={editForm.end_date}
-                    onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))} />
-                </td>
-                <td className="p-3">
-                  <Select value={editForm.reason_code}
-                    onChange={e => setEditForm(f => ({ ...f, reason_code: e.target.value }))}>
-                    {reasons.map(x => <option key={x.code} value={x.code}>{x.code}</option>)}
-                  </Select>
-                </td>
-                <td className="p-3">
-                  <Input value={editForm.notes}
-                    onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
-                </td>
-                <td className="p-3 whitespace-nowrap">
-                  <Button variant="primary" className="mr-2" onClick={() => saveEdit(r.id)}>Save</Button>
-                  <Button variant="outline" onClick={cancelEdit}>Cancel</Button>
-                </td>
-              </tr>
-            ) : (
-              <tr key={r.id}>
-                <td className="p-3">
-                  {r.employee?.first_name} {r.employee?.last_name}
-                  <div className="text-xs text-gray-500">{r.employee?.email}</div>
-                </td>
-                <td className="p-3">{r.employee?.base}</td>
-                <td className="p-3">{r.employee?.department}</td>
-                <td className="p-3">{r.start_date}</td>
-                <td className="p-3">{r.end_date}</td>
-                <td className="p-3">{r.reason_code}</td>
-                <td className="p-3">{r.notes || ""}</td>
-                <td className="p-3 whitespace-nowrap">
-                  <Button variant="outline" className="mr-2" onClick={() => startEdit(r)}>Edit</Button>
-                  <Button variant="danger" onClick={() => remove(r.id)}>Delete</Button>
-                </td>
-              </tr>
-            )
-          ))}
+        <Table head={["Employee","Base","Dept","Start","End","Duration","Reason","Notes",""]}>
+          {view.map(r => {
+            const duration = dayDiff(r.start_date, r.end_date);
+            const isLong = duration >= (settings.long_absence_days ?? 7);
+            return (
+              editingId === r.id ? (
+                <tr key={r.id} className="bg-orange-50">
+                  <td className="p-3">
+                    {r.employee?.first_name} {r.employee?.last_name}
+                    <div className="text-xs text-gray-500">{r.employee?.email}</div>
+                  </td>
+                  <td className="p-3">{r.employee?.base}</td>
+                  <td className="p-3">{r.employee?.department}</td>
+                  <td className="p-3">
+                    <Input type="date" value={editForm.start_date}
+                      onChange={e => setEditForm(f => ({ ...f, start_date: e.target.value }))} />
+                  </td>
+                  <td className="p-3">
+                    <Input type="date" value={editForm.end_date}
+                      onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))} />
+                  </td>
+                  <td className="p-3">{dayDiff(editForm.start_date, editForm.end_date)}</td>
+                  <td className="p-3">
+                    <Select value={editForm.reason_code}
+                      onChange={e => setEditForm(f => ({ ...f, reason_code: e.target.value }))}>
+                      {reasons.map(x => <option key={x.code} value={x.code}>{x.code}</option>)}
+                    </Select>
+                  </td>
+                  <td className="p-3">
+                    <Input value={editForm.notes}
+                      onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
+                  </td>
+                  <td className="p-3 whitespace-nowrap">
+                    <Button variant="primary" className="mr-2" onClick={() => saveEdit(r.id)}>Save</Button>
+                    <Button variant="outline" onClick={cancelEdit}>Cancel</Button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={r.id}>
+                  <td className="p-3">
+                    {r.employee?.first_name} {r.employee?.last_name}
+                    <div className="text-xs text-gray-500">{r.employee?.email}</div>
+                  </td>
+                  <td className="p-3">{r.employee?.base}</td>
+                  <td className="p-3">{r.employee?.department}</td>
+                  <td className="p-3">{r.start_date}</td>
+                  <td className="p-3">{r.end_date}</td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <span>{duration}</span>
+                      {isLong && <Badge tone="warning">Long</Badge>}
+                    </div>
+                  </td>
+                  <td className="p-3">{r.reason_code}</td>
+                  <td className="p-3">{r.notes || ""}</td>
+                  <td className="p-3 whitespace-nowrap">
+                    <Button variant="outline" className="mr-2" onClick={() => startEdit(r)}>Edit</Button>
+                    <Button variant="danger" onClick={() => remove(r.id)}>Delete</Button>
+                  </td>
+                </tr>
+              )
+            );
+          })}
         </Table>
       </Card>
     </div>
