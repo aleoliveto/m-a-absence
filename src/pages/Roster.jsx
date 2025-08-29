@@ -7,11 +7,15 @@ const roleHue = (str = "-") => { let h = 0; for (let i=0;i<str.length;i++) h = (
 // Helper: format shift label
 const formatShiftLabel = (s) => {
   const rc = (s.role_code||'').toString().toUpperCase();
-  if (rc === 'TRAIN' || rc === 'TRAINING') return 'TRAIN';
+  // Explicit role labels
+  if (rc === 'TRAIN' || rc === 'TRAINING') return 'Training';
+  // Time-based defaults
   const st = s.start_time, et = s.end_time;
-  if (st === '08:00' && et === '16:00') return 'DAY';
-  if (st === '20:00' && et === '06:00') return 'NIGHT';
-  return rc || 'SHIFT';
+  if (st === '08:00' && et === '16:00') return 'Day Shift';
+  if (st === '20:00' && et === '06:00') return 'Night Shift';
+  // Fallbacks
+  if (rc) return rc.charAt(0) + rc.slice(1).toLowerCase();
+  return 'Shift';
 };
 
 const iso = (d) => {
@@ -74,6 +78,10 @@ export default function Roster(){
   // Hover preview key for notes ("empId|YYYY-MM-DD"), and side panel state
   const [noteHoverKey, setNoteHoverKey] = useState("");
   const [notesPanel, setNotesPanel] = useState({ open:false, empId:null });
+
+  // Availability: { [empId]: { [isoDate]: 'available'|'preferred'|'unavailable' } }
+  const [availabilityByEmpDay, setAvailabilityByEmpDay] = useState({});
+  const [showAvailability, setShowAvailability] = useState(false);
 
   // Helper: return week notes for an employee aligned to visible days
   const getEmpWeekNotes = (empId) => {
@@ -153,6 +161,44 @@ export default function Roster(){
   const [assignForm, setAssignForm] = useState({ empSearch:"", employee_id:"" });
   // quick-add UI state: which employee|date cell is open
   const [quickAddKey, setQuickAddKey] = useState(""); // `${emp.id}|${date}`
+  const [quickAvailKey, setQuickAvailKey] = useState(""); // `${emp.id}|${date}`
+  useEffect(()=>{
+    (async ()=>{
+      const { data, error } = await supabase
+        .from('employee_availability')
+        .select('employee_id,date,status')
+        .gte('date', filters.from)
+        .lte('date', filters.to);
+      if (error) { console.error(error); setAvailabilityByEmpDay({}); return; }
+      const map = {};
+      (data||[]).forEach(r=>{
+        if (!r.employee_id || !r.date) return;
+        map[r.employee_id] = map[r.employee_id] || {};
+        map[r.employee_id][r.date] = r.status; // 'available' | 'preferred' | 'unavailable'
+      });
+      setAvailabilityByEmpDay(map);
+    })();
+  }, [filters.from, filters.to]);
+
+  async function setAvailability(empId, date, status){
+    // status: 'available' | 'preferred' | 'unavailable' | null (clear)
+    if (!empId || !date) return;
+    if (status === null){
+      const { error } = await supabase.from('employee_availability').delete().match({ employee_id: empId, date });
+      if (error) { toast(error.message, 'danger'); return; }
+      setAvailabilityByEmpDay(prev=>{
+        const copy = { ...prev };
+        if (copy[empId]){ delete copy[empId][date]; }
+        return copy;
+      });
+      toast('Availability cleared', 'success');
+      return;
+    }
+    const { error } = await supabase.from('employee_availability').upsert({ employee_id: empId, date, status }, { onConflict: 'employee_id,date' });
+    if (error) { toast(error.message, 'danger'); return; }
+    setAvailabilityByEmpDay(prev=>({ ...prev, [empId]: { ...(prev[empId]||{}), [date]: status } }));
+    toast('Availability saved', 'success');
+  }
 
   async function assign(shift_id){
     if (!assignForm.employee_id) return toast("Choose an employee", "warning");
@@ -167,6 +213,78 @@ export default function Roster(){
     const { error } = await supabase.from("roster_assignment").delete().match({ shift_id, employee_id });
     if (error) return toast(error.message, "danger");
     toast("Unassigned", "success");
+    load();
+  }
+
+  // === Auto-fill helpers ===
+  function isAbsent(empId, dateIso){
+    return !!(absencesByEmpDay[empId]?.has(dateIso));
+  }
+
+  function isAvailable(empId, dateIso){
+    const st = availabilityByEmpDay[empId]?.[dateIso];
+    // 'preferred' > 'available' > neutral; 'unavailable' is excluded
+    return st === 'available' || st === 'preferred' || st === undefined;
+  }
+
+  function availabilityRank(empId, dateIso){
+    const st = availabilityByEmpDay[empId]?.[dateIso];
+    if (st === 'preferred') return 0;
+    if (st === 'available') return 1;
+    if (st === undefined) return 2;
+    return 3; // unavailable
+  }
+
+  function suggestCandidatesForShift(shift, count){
+    const date = shift.shift_date;
+    const assigns = new Set((assignmentsByShift[shift.shift_id] || []).map(a => a.employee_id));
+    const pool = (employees || [])
+      .filter(e => (!shift.base || e.base === shift.base) && (!shift.department || e.department === shift.department))
+      .filter(e => !assigns.has(e.id) && !isAbsent(e.id, date) && isAvailable(e.id, date));
+
+    const ranked = pool.sort((a,b)=>{
+      const r = availabilityRank(a.id, date) - availabilityRank(b.id, date);
+      if (r !== 0) return r;
+      const ha = assignedHoursByEmp[a.id] || 0;
+      const hb = assignedHoursByEmp[b.id] || 0;
+      if (ha !== hb) return ha - hb;
+      const an = `${a.last_name||''} ${a.first_name||''}`.toLowerCase();
+      const bn = `${b.last_name||''} ${b.first_name||''}`.toLowerCase();
+      return an.localeCompare(bn);
+    });
+
+    return ranked.slice(0, Math.max(0, count));
+  }
+
+  async function fillShift(shift){
+    const assigns = assignmentsByShift[shift.shift_id] || [];
+    const remaining = Math.max(0, (shift.min_staff || 0) - assigns.length);
+    if (remaining <= 0) { toast('No remaining slots for this shift', 'info'); return; }
+    const candidates = suggestCandidatesForShift(shift, remaining);
+    if (candidates.length === 0) { toast('No suitable candidates found', 'warning'); return; }
+    const names = candidates.map(c=>`${c.first_name} ${c.last_name}`).join(', ');
+    if (!window.confirm(`Assign ${names} to ${formatShiftLabel(shift)} on ${shift.shift_date}?`)) return;
+    for (const c of candidates){
+      const { error } = await supabase.from('roster_assignment').insert([{ shift_id: shift.shift_id, employee_id: c.id, assigned_by: 'autofill@app' }]);
+      if (error) { toast(error.message, 'danger'); break; }
+    }
+    toast('Shift filled', 'success');
+    load();
+  }
+
+  async function autofillWeek(){
+    if (!window.confirm('Auto-fill remaining slots for all shifts this week using availability and current load?')) return;
+    for (const s of (shifts || [])){
+      const assigns = assignmentsByShift[s.shift_id] || [];
+      const remaining = Math.max(0, (s.min_staff || 0) - assigns.length);
+      if (remaining <= 0) continue;
+      const candidates = suggestCandidatesForShift(s, remaining);
+      for (const c of candidates){
+        const { error } = await supabase.from('roster_assignment').insert([{ shift_id: s.shift_id, employee_id: c.id, assigned_by: 'autofill@app' }]);
+        if (error) { toast(error.message, 'danger'); break; }
+      }
+    }
+    toast('Auto-fill complete', 'success');
     load();
   }
 
@@ -266,6 +384,19 @@ export default function Roster(){
     });
     return by;
   }, [conflicts]);
+
+  // Map current assigned hours per employee for the visible week (for fair distribution)
+  const assignedHoursByEmp = useMemo(() => {
+    const hours = {};
+    (shifts || []).forEach(s => {
+      const assigns = assignmentsByShift[s.shift_id] || [];
+      const h = shiftHours(s.start_time, s.end_time);
+      assigns.forEach(a => {
+        hours[a.employee_id] = (hours[a.employee_id] || 0) + h;
+      });
+    });
+    return hours;
+  }, [shifts, assignmentsByShift]);
 
   useEffect(()=>{
     (async ()=>{
@@ -374,6 +505,10 @@ export default function Roster(){
             const ws = weekStart(new Date());
             return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
           })}>Today</Button>
+          <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
+            {showAvailability ? 'Hide Availability' : 'Show Availability'}
+          </Button>
+          <Button variant="outline" onClick={autofillWeek}>Auto-fill week</Button>
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const next = weekStart(addDays(ws, 7));
@@ -505,6 +640,37 @@ export default function Roster(){
                           </div>
                         )}
 
+                        {/* Availability button */}
+                        <button
+                          className="absolute top-0.5 left-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
+                          onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setQuickAvailKey(k=> k===`${emp.id}|${d}`? "" : `${emp.id}|${d}`); }}
+                          title="Set availability"
+                        >⚑</button>
+                        {quickAvailKey === `${emp.id}|${d}` && (
+                          <div className="absolute z-20 left-1 top-5 bg-white border rounded shadow p-1 flex flex-col gap-1 text-xs">
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'available')}>Mark Available</button>
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'preferred')}>Mark Preferred</button>
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'unavailable')}>Mark Unavailable</button>
+                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, null)}>Clear</button>
+                          </div>
+                        )}
+
+                        {/* Availability overlay dot */}
+                        {showAvailability && (
+                          (()=>{
+                            const st = availabilityByEmpDay[emp.id]?.[d];
+                            if (!st) return null;
+                            const color = st==='available' ? 'bg-green-500' : st==='preferred' ? 'bg-amber-500' : 'bg-red-500';
+                            const label = st==='available' ? 'Available' : st==='preferred' ? 'Preferred' : 'Unavailable';
+                            return (
+                              <div className="absolute -bottom-1 left-1 flex items-center gap-1 text-[10px]">
+                                <span className={`inline-block h-2.5 w-2.5 rounded-full ${color}`} title={label}></span>
+                                <span className="text-gray-600">{label}</span>
+                              </div>
+                            );
+                          })()
+                        )}
+
                         {/* Notes indicator (if notes exist) */}
                         {(notesByEmpDay[emp.id]?.[d]?.length > 0) && (
                           <button
@@ -547,9 +713,19 @@ export default function Roster(){
                                 const hue = roleHue(String(s.role_code||''));
                                 const confl = (conflictsByShift[s.shift_id] || []).filter(c => c.employee_id === emp.id);
                                 return (
-                                  <div key={`${emp.id}-${s.shift_id}`} className="rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
+                                  <div key={`${emp.id}-${s.shift_id}`} className="group rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
                                     <div className="px-2 py-1 flex items-center justify-between gap-2">
                                       <div className="font-medium truncate" title={formatShiftLabel(s)}>{formatShiftLabel(s)}</div>
+                                      <button
+                                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50"
+                                        title="Remove this employee from the shift"
+                                        aria-label="Remove"
+                                        onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, emp.id); }}
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
+                                          <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
+                                        </svg>
+                                      </button>
                                     </div>
                                     {(isAbsent || confl.length>0) && (
                                       <div className="px-2 pb-1 flex gap-1 flex-wrap">
@@ -600,11 +776,20 @@ export default function Roster(){
                                 // Removed function shiftLabel(s) { ... }
                                 return (
                                   <div key={s.shift_id} className="rounded border text-[11px]" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
-                                    <div className="px-2 py-0.5 flex items-center justify-between">
+                                    <div className="px-2 py-0.5 flex items-center justify-between gap-2">
                                       <div className="text-xs font-medium">{formatShiftLabel(s)}</div>
-                                      <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
-                                        {assigns.length}/{s.min_staff}
-                                      </Badge>
+                                      <div className="flex items-center gap-2">
+                                        <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
+                                          {assigns.length}/{s.min_staff}
+                                        </Badge>
+                                        {remaining > 0 && (
+                                          <button
+                                            className="text-[11px] px-1.5 py-0.5 rounded border hover:bg-gray-50"
+                                            onClick={()=>fillShift(s)}
+                                            title="Fill from availability"
+                                          >Fill</button>
+                                        )}
+                                      </div>
                                     </div>
                                     <div className="px-2 pb-1">
                                       {assigns.length === 0 ? (
@@ -684,7 +869,16 @@ export default function Roster(){
                               {assigns.map(a=>(
                                 <span key={a.id} className="inline-flex items-center gap-2 bg-gray-100 rounded-md px-2 py-1">
                                   {a.employee?.first_name} {a.employee?.last_name}
-                                  <button className="text-xs text-red-600 hover:underline" onClick={()=>unassign(s.shift_id, a.employee_id)}>remove</button>
+                                  <button
+                                    className="p-1 rounded hover:bg-red-50"
+                                    title="Remove"
+                                    aria-label="Remove"
+                                    onClick={()=>{ if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, a.employee_id); }}
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
+                                      <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
+                                    </svg>
+                                  </button>
                                 </span>
                               ))}
                             </div>
