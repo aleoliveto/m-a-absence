@@ -319,6 +319,9 @@ export default function Roster(){
   }
   const [absencesByEmpDay, setAbsencesByEmpDay] = useState({}); // { empId: Set([YYYY-MM-DD]) }
 
+  // Coverage Report modal visibility
+  const [showCoverageReport, setShowCoverageReport] = useState(false);
+
   // Notes: { [empId]: { [isoDate]: string[] } }
   const [notesByEmpDay, setNotesByEmpDay] = useState({}); // { [empId]: { [isoDate]: string[] } }
   // Hover preview key for notes ("empId|YYYY-MM-DD"), and side panel state
@@ -1058,6 +1061,11 @@ export default function Roster(){
             Published only
           </label>
 
+          {/* Coverage Report button for manager/senior */}
+          {(role === 'manager' || role === 'senior') && (
+            <Button variant="outline" onClick={()=> setShowCoverageReport(true)}>Coverage Report</Button>
+          )}
+
           <div className="w-px h-6 bg-gray-200 mx-1" />
 
           {/* Advanced panel toggle and Create Shift toggle: Managers only */}
@@ -1553,6 +1561,34 @@ export default function Roster(){
             </div>
           </div>
         </Card>
+    {/* Coverage Report Modal/Card */}
+    {showCoverageReport && (
+      <Card title="Coverage Report">
+        <div className="text-sm text-gray-600 mb-3">Summary of coverage for this week.</div>
+        {(() => {
+          // Calculate metrics
+          const totalShifts = shifts.length;
+          const filledShifts = shifts.filter(s => (assignmentsByShift[s.shift_id]?.length || 0) >= s.min_staff).length;
+          const coveragePercent = totalShifts === 0 ? 0 : Math.round((filledShifts / totalShifts) * 100);
+          const totalConflicts = (conflicts || []).length;
+          return (
+            <div className="mb-4">
+              <div className="grid grid-cols-2 gap-3 max-w-xs">
+                <div className="font-medium text-gray-700">Total shifts</div>
+                <div className="text-gray-900">{totalShifts}</div>
+                <div className="font-medium text-gray-700">Shifts fully covered</div>
+                <div className="text-gray-900">{filledShifts}</div>
+                <div className="font-medium text-gray-700">Coverage %</div>
+                <div className="text-gray-900">{coveragePercent}%</div>
+                <div className="font-medium text-gray-700">Total conflicts</div>
+                <div className="text-gray-900">{totalConflicts}</div>
+              </div>
+            </div>
+          );
+        })()}
+        <Button variant="outline" onClick={()=> setShowCoverageReport(false)}>Close</Button>
+      </Card>
+    )}
     </div>
   );
 }
