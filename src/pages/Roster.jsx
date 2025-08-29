@@ -71,6 +71,7 @@ export default function Roster(){
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [publishedOnly, setPublishedOnly] = useState(false);
   // Templates + bulk apply
   const [templates, setTemplates] = useState([]);
   const [showApplyTemplate, setShowApplyTemplate] = useState(false);
@@ -310,7 +311,7 @@ export default function Roster(){
   },[]);
 
   // load shifts with coverage
-  useEffect(()=>{ load(); /* eslint-disable-next-line */ }, [filters]);
+  useEffect(()=>{ load(); }, [filters, publishedOnly]);
   async function load(){
     setLoading(true);
     const { data } = await supabase
@@ -322,7 +323,8 @@ export default function Roster(){
       .order("start_time", { ascending: true });
     const view = (data||[]).filter(r =>
       (!filters.base || r.base === filters.base) &&
-      (!filters.dept || r.department === filters.dept)
+      (!filters.dept || r.department === filters.dept) &&
+      (!publishedOnly || r.status === 'published')
     );
     setShifts(view);
     setLoading(false);
@@ -500,6 +502,20 @@ export default function Roster(){
     toast('Auto-fill complete', 'success');
     load();
   }
+
+  async function setWeekStatus(rangeFrom, rangeTo, status){
+    let q = supabase.from('roster_shift').update({ status })
+      .gte('shift_date', rangeFrom)
+      .lte('shift_date', rangeTo);
+    if (filters.base) q = q.eq('base', filters.base);
+    if (filters.dept) q = q.eq('department', filters.dept);
+    const { error } = await q;
+    if (error) return toast(error.message, 'danger');
+    toast(`Week set to ${status}`, 'success');
+    load();
+  }
+  function publishWeek(){ setWeekStatus(filters.from, filters.to, 'published'); }
+  function unpublishWeek(){ setWeekStatus(filters.from, filters.to, 'planned'); }
 
   async function setStatus(shift_id, status){
     const { error } = await supabase.from("roster_shift").update({ status }).eq("id", shift_id);
@@ -724,6 +740,12 @@ export default function Roster(){
             {showAvailability ? 'Hide Availability' : 'Show Availability'}
           </Button>
           <Button variant="outline" onClick={autofillWeek}>Auto-fill week</Button>
+          <Button variant="outline" onClick={publishWeek}>Publish week</Button>
+          <Button variant="outline" onClick={unpublishWeek}>Unpublish week</Button>
+          <label className="ml-2 inline-flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
+            Show published only
+          </label>
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const next = weekStart(addDays(ws, 7));
@@ -1050,7 +1072,7 @@ export default function Roster(){
                                         <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
                                           {assigns.length}/{s.min_staff}
                                         </Badge>
-                                        {remaining > 0 && (
+                                        {(remaining > 0 && s.status !== 'published' && s.status !== 'cancelled') && (
                                           <button
                                             className="text-[11px] px-1.5 py-0.5 rounded border hover:bg-gray-50"
                                             onClick={()=>openFillPreview(s)}
@@ -1077,15 +1099,19 @@ export default function Roster(){
                                           )}
                                         </div>
                                       )}
-                                      <div className="mt-2 flex gap-1">
-                                        <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
-                                          <option value="">Add…</option>
-                                          {employees.map(emp => (
-                                            <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
-                                          ))}
-                                        </Select>
-                                        <Button onClick={()=>assign(s.shift_id)}>Add</Button>
-                                      </div>
+                                      {s.status === 'published' || s.status === 'cancelled' ? (
+                                        <div className="mt-2 text-[11px] text-gray-500">{s.status === 'published' ? 'Published — edits disabled' : 'Cancelled'}</div>
+                                      ) : (
+                                        <div className="mt-2 flex gap-1">
+                                          <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
+                                            <option value="">Add…</option>
+                                            {employees.map(emp => (
+                                              <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
+                                            ))}
+                                          </Select>
+                                          <Button onClick={()=>assign(s.shift_id)}>Add</Button>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 );
@@ -1170,10 +1196,11 @@ export default function Roster(){
                             </div>
                           </td>
                           <td className="p-3 whitespace-nowrap">
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
                               {s.status !== "published" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"published")}>Publish</Button>}
                               {s.status !== "planned" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"planned")}>Unpublish</Button>}
                               {s.status !== "cancelled" && <Button variant="danger" onClick={()=>setStatus(s.shift_id,"cancelled")}>Cancel</Button>}
+                              {s.status === 'published' && <span className="text-[11px] text-gray-500">Published — edits disabled</span>}
                             </div>
                           </td>
                         </tr>
