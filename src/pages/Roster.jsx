@@ -53,6 +53,15 @@ export default function Roster(){
   const [viewMode, setViewMode] = useState("grid"); // grid | list
   const [groupBy, setGroupBy] = useState("employee"); // employee | role_code | base | department
 
+  // Role awareness from header selector
+  const [role, setRole] = useState(() => (typeof window !== 'undefined' && window.appRole) ? window.appRole : (localStorage.getItem('app:role') || 'manager'));
+  useEffect(() => {
+    const onRole = () => setRole((typeof window !== 'undefined' && window.appRole) ? window.appRole : (localStorage.getItem('app:role') || 'manager'));
+    window.addEventListener('app:role', onRole);
+    return () => window.removeEventListener('app:role', onRole);
+  }, []);
+  const canEdit = role === 'manager' || role === 'senior';
+
   // scrolling + virtualization
   const scrollRef = useRef(null);
   const [scrollY, setScrollY] = useState(0);
@@ -724,9 +733,9 @@ export default function Roster(){
         <h1 className="text-xl font-bold">Roster</h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
-          <Button onClick={()=> setShowCreate(v=>!v)}>{showCreate? "Hide New Shift":"New Shift"}</Button>
-          <Button variant="outline" onClick={()=> window.location.href='/templates'}>Manage Templates</Button>
-          <Button variant="outline" onClick={()=> setShowApplyTemplate(true)}>Apply Template…</Button>
+          {canEdit && <Button onClick={()=> setShowCreate(v=>!v)}>{showCreate? "Hide New Shift":"New Shift"}</Button>}
+          {canEdit && <Button variant="outline" onClick={()=> window.location.href='/templates'}>Manage Templates</Button>}
+          {canEdit && <Button variant="outline" onClick={()=> setShowApplyTemplate(true)}>Apply Template…</Button>}
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const prev = weekStart(addDays(ws, -7));
@@ -739,9 +748,9 @@ export default function Roster(){
           <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
             {showAvailability ? 'Hide Availability' : 'Show Availability'}
           </Button>
-          <Button variant="outline" onClick={autofillWeek}>Auto-fill week</Button>
-          <Button variant="outline" onClick={publishWeek}>Publish week</Button>
-          <Button variant="outline" onClick={unpublishWeek}>Unpublish week</Button>
+          {canEdit && <Button variant="outline" onClick={autofillWeek}>Auto-fill week</Button>}
+          {canEdit && <Button variant="outline" onClick={publishWeek}>Publish week</Button>}
+          {canEdit && <Button variant="outline" onClick={unpublishWeek}>Unpublish week</Button>}
           <label className="ml-2 inline-flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
             Show published only
@@ -1006,16 +1015,18 @@ export default function Roster(){
                                   <div key={`${emp.id}-${s.shift_id}`} className="group rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
                                     <div className="px-2 py-1 flex items-center justify-between gap-2">
                                       <div className="font-medium truncate" title={formatShiftLabel(s)}>{formatShiftLabel(s)}</div>
-                                      <button
-                                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50"
-                                        title="Remove this employee from the shift"
-                                        aria-label="Remove"
-                                        onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, emp.id); }}
-                                      >
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
-                                          <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
-                                        </svg>
-                                      </button>
+                                      {canEdit && (
+                                        <button
+                                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50"
+                                          title="Remove this employee from the shift"
+                                          aria-label="Remove"
+                                          onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, emp.id); }}
+                                        >
+                                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
+                                            <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
+                                          </svg>
+                                        </button>
+                                      )}
                                     </div>
                                     {(isAbsent || confl.length>0) && (
                                       <div className="px-2 pb-1 flex gap-1 flex-wrap">
@@ -1163,45 +1174,57 @@ export default function Roster(){
                               {assigns.map(a=>(
                                 <span key={a.id} className="inline-flex items-center gap-2 bg-gray-100 rounded-md px-2 py-1">
                                   {a.employee?.first_name} {a.employee?.last_name}
-                                  <button
-                                    className="p-1 rounded hover:bg-red-50"
-                                    title="Remove"
-                                    aria-label="Remove"
-                                    onClick={()=>{ if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, a.employee_id); }}
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
-                                      <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
-                                    </svg>
-                                  </button>
+                                  {canEdit && (
+                                    <button
+                                      className="p-1 rounded hover:bg-red-50"
+                                      title="Remove"
+                                      aria-label="Remove"
+                                      onClick={()=>{ if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, a.employee_id); }}
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
+                                        <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
+                                      </svg>
+                                    </button>
+                                  )}
                                 </span>
                               ))}
                             </div>
-                            <div className="mt-2 flex gap-2">
-                              <Input placeholder="Search…" value={assignForm.empSearch} onChange={e=>setAssignForm(f=>({...f, empSearch:e.target.value}))}/>
-                              <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
-                                <option value="">Pick employee…</option>
-                                {employees
-                                  .filter(emp=>{
-                                    const q = assignForm.empSearch.trim().toLowerCase();
-                                    const full = `${emp.first_name} ${emp.last_name}`.toLowerCase();
-                                    return !q || full.includes(q) || (emp.email||"").toLowerCase().includes(q);
-                                  })
-                                  .map(emp=>(
-                                    <option key={emp.id} value={emp.id}>
-                                      {emp.first_name} {emp.last_name} — {emp.base || "—"}/{emp.department || "—"}
-                                    </option>
-                                  ))}
-                              </Select>
-                              <Button onClick={()=>assign(s.shift_id)}>Assign</Button>
-                            </div>
+                            {canEdit && (
+                              <div className="mt-2 flex gap-2">
+                                <Input placeholder="Search…" value={assignForm.empSearch} onChange={e=>setAssignForm(f=>({...f, empSearch:e.target.value}))}/>
+                                <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
+                                  <option value="">Pick employee…</option>
+                                  {employees
+                                    .filter(emp=>{
+                                      const q = assignForm.empSearch.trim().toLowerCase();
+                                      const full = `${emp.first_name} ${emp.last_name}`.toLowerCase();
+                                      return !q || full.includes(q) || (emp.email||"").toLowerCase().includes(q);
+                                    })
+                                    .map(emp=>(
+                                      <option key={emp.id} value={emp.id}>
+                                        {emp.first_name} {emp.last_name} — {emp.base || "—"}/{emp.department || "—"}
+                                      </option>
+                                    ))}
+                                </Select>
+                                <Button onClick={()=>assign(s.shift_id)}>Assign</Button>
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 whitespace-nowrap">
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-                              {s.status !== "published" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"published")}>Publish</Button>}
-                              {s.status !== "planned" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"planned")}>Unpublish</Button>}
-                              {s.status !== "cancelled" && <Button variant="danger" onClick={()=>setStatus(s.shift_id,"cancelled")}>Cancel</Button>}
-                              {s.status === 'published' && <span className="text-[11px] text-gray-500">Published — edits disabled</span>}
-                            </div>
+                            {canEdit ? (
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                                {s.status !== "published" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"published")}>Publish</Button>}
+                                {s.status !== "planned" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"planned")}>Unpublish</Button>}
+                                {s.status !== "cancelled" && <Button variant="danger" onClick={()=>setStatus(s.shift_id,"cancelled")}>Cancel</Button>}
+                                {s.status === 'published' && <span className="text-[11px] text-gray-500">Published — edits disabled</span>}
+                              </div>
+                            ) : (
+                              <div>
+                                {s.status === 'published' && <span className="text-[11px] text-gray-500">Published</span>}
+                                {s.status === 'planned' && <span className="text-[11px] text-gray-500">Unpublished</span>}
+                                {s.status === 'cancelled' && <span className="text-[11px] text-gray-500">Cancelled</span>}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
