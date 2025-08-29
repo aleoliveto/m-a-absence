@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef, useLayoutEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { Card, Button, Field, Input, Select, Table, Badge, toast } from "../components/ui";
 // Simple color generator for role buckets
@@ -34,6 +34,13 @@ export default function Roster(){
   const [viewMode, setViewMode] = useState("grid"); // grid | list
   const [groupBy, setGroupBy] = useState("employee"); // employee | role_code | base | department
 
+  // scrolling + virtualization
+  const scrollRef = useRef(null);
+  const [scrollY, setScrollY] = useState(0);
+  const [viewportH, setViewportH] = useState(600);
+  const [headerShadow, setHeaderShadow] = useState(false);
+  const ROW_HEIGHT = 72; // px, approximate row height
+
   const [filters, setFilters] = useState(()=>{
     const ws = weekStart(new Date());
     const monday = iso(ws);
@@ -46,6 +53,18 @@ export default function Roster(){
   const [showFilters, setShowFilters] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [absencesByEmpDay, setAbsencesByEmpDay] = useState({}); // { empId: Set([YYYY-MM-DD]) }
+
+  // Notes: { [empId]: { [isoDate]: string[] } }
+  const [notesByEmpDay, setNotesByEmpDay] = useState({}); // { [empId]: { [isoDate]: string[] } }
+  // Hover preview key for notes ("empId|YYYY-MM-DD"), and side panel state
+  const [noteHoverKey, setNoteHoverKey] = useState("");
+  const [notesPanel, setNotesPanel] = useState({ open:false, empId:null });
+
+  // Helper: return week notes for an employee aligned to visible days
+  const getEmpWeekNotes = (empId) => {
+    const byDate = notesByEmpDay[empId] || {};
+    return days.map(d => ({ date:d, notes: byDate[d] || [] }));
+  };
 
   const days = useMemo(()=>{
     const start = new Date(filters.from);
@@ -60,6 +79,15 @@ export default function Roster(){
       setBases([...new Set((emps||[]).map(e=>e.base).filter(Boolean))].sort());
       setDepts([...new Set((emps||[]).map(e=>e.department).filter(Boolean))].sort());
     })();
+  },[]);
+
+  // measure viewport height and listen to resize
+  useLayoutEffect(()=>{
+    const el = scrollRef.current;
+    const measure = ()=> setViewportH(el ? el.clientHeight : 600);
+    measure();
+    window.addEventListener('resize', measure);
+    return ()=> window.removeEventListener('resize', measure);
   },[]);
 
   // load shifts with coverage
@@ -167,6 +195,23 @@ export default function Roster(){
     load();
   }
 
+  async function addNote(empId, date){
+    const note = window.prompt("Enter note for this day:");
+    if (!note) return;
+    const { error } = await supabase
+      .from("roster_note")
+      .insert([{ employee_id: empId, date, text: note }]);
+    if (error) { toast(error.message, "danger"); return; }
+    toast("Note added", "success");
+    setNotesByEmpDay(prev => {
+      const copy = { ...prev };
+      const byDate = { ...(copy[empId] || {}) };
+      byDate[date] = [ ...(byDate[date] || []), note ];
+      copy[empId] = byDate;
+      return copy;
+    });
+  }
+
   // fetch assignments for displayed shifts
   const [assignmentsByShift, setAssignmentsByShift] = useState({});
   useEffect(()=>{
@@ -228,6 +273,24 @@ export default function Roster(){
     })();
   }, [filters.from, filters.to]);
 
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from("roster_note")
+        .select("employee_id,date,text")
+        .gte("date", filters.from)
+        .lte("date", filters.to);
+      if (error) { console.error(error); setNotesByEmpDay({}); return; }
+      const map = {};
+      (data || []).forEach(n => {
+        if (!n.employee_id || !n.date) return;
+        if (!map[n.employee_id]) map[n.employee_id] = {};
+        map[n.employee_id][n.date] = [ ...(map[n.employee_id][n.date] || []), n.text ];
+      });
+      setNotesByEmpDay(map);
+    })();
+  }, [filters.from, filters.to]);
+
   const grouped = useMemo(() => {
     const by = new Map();
     (shifts || []).forEach(s => {
@@ -273,6 +336,11 @@ export default function Roster(){
     });
   }, [groupBy, employees, filters.base, filters.dept, shifts, assignmentsByShift, days]);
 
+  const totalEmployeeRows = employeeRows.length;
+  const startIndex = groupBy === 'employee' ? Math.max(0, Math.floor(scrollY / ROW_HEIGHT) - 3) : 0;
+  const visibleCount = groupBy === 'employee' ? Math.ceil(viewportH / ROW_HEIGHT) + 6 : totalEmployeeRows;
+  const endIndex = groupBy === 'employee' ? Math.min(totalEmployeeRows, startIndex + visibleCount) : totalEmployeeRows;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -280,6 +348,15 @@ export default function Roster(){
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
           <Button onClick={()=> setShowCreate(v=>!v)}>{showCreate? "Hide New Shift":"New Shift"}</Button>
+          <Button variant="ghost" onClick={()=> setFilters(f=>{
+            const ws = weekStart(new Date(f.from));
+            const prev = weekStart(addDays(ws, -7));
+            return { ...f, from: iso(prev), to: iso(addDays(prev,6)) };
+          })}>← Prev week</Button>
+          <Button variant="ghost" onClick={()=> setFilters(f=>{
+            const ws = weekStart(new Date());
+            return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
+          })}>Today</Button>
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const next = weekStart(addDays(ws, 7));
@@ -358,10 +435,10 @@ export default function Roster(){
       {/* Multi-schedule view */}
       {viewMode === "grid" ? (
         <Card>
-          <div className="overflow-auto">
-            <div className="min-w-[1100px]">
+          <div className="overflow-auto" ref={scrollRef} onScroll={(e)=>{ setScrollY(e.currentTarget.scrollTop); setHeaderShadow(e.currentTarget.scrollTop>0); }}>
+            <div className="min-w-[1100px] w-full">
               {/* Header row: group label + 7 day columns */}
-              <div className="grid" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
+              <div className={`grid ${headerShadow ? 'shadow-sm' : ''}`} style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                 <div className="p-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{groupBy === 'base' ? 'Team' : groupBy.replace('_',' ')}</div>
                 {days.map(d => (
                   <div key={d} className="p-3 text-sm font-semibold text-gray-700 sticky top-0 bg-white z-10 border-b">{new Date(d).toLocaleDateString(undefined,{ weekday:'short', month:'short', day:'numeric' })}</div>
@@ -370,10 +447,12 @@ export default function Roster(){
 
               {/* Rows */}
               {groupBy === 'employee' ? (
-                employeeRows.map(({ emp, byDay, totalHrs }) => (
-                  <div key={emp.id} className="grid border-t" style={{gridTemplateColumns: `220px repeat(7, 1fr)`}}>
+                <>
+                  <div style={{ height: startIndex * ROW_HEIGHT }} />
+                  {employeeRows.slice(startIndex, endIndex).map(({ emp, byDay, totalHrs }) => (
+                    <div key={emp.id} className="grid border-t" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                     {/* Left: employee identity + weekly total */}
-                    <div className="p-3 bg-gray-50/60 border-r">
+                    <div className="p-3 bg-gray-50/60 border-r sticky left-0 z-10">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className="h-7 w-7 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium">
@@ -390,7 +469,11 @@ export default function Roster(){
 
                     {/* Day cells */}
                     {days.map(d => (
-                      <div key={d} className="relative p-1.5 border-r min-h-[56px]">
+                      <div
+                        key={d}
+                        className="relative p-1.5 border-r h-[64px] overflow-auto"
+                        onContextMenu={(e) => { e.preventDefault(); addNote(emp.id, d); }}
+                      >
                         {/* Quick add button */}
                         <button
                           className="absolute top-0.5 right-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
@@ -402,6 +485,29 @@ export default function Roster(){
                             <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'day')}>Day shift</button>
                             <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'night')}>Night shift</button>
                             <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'training')}>Training</button>
+                          </div>
+                        )}
+
+                        {/* Notes indicator (if notes exist) */}
+                        {(notesByEmpDay[emp.id]?.[d]?.length > 0) && (
+                          <button
+                            className="absolute top-0.5 right-6 text-xs px-1 rounded bg-yellow-50 border border-yellow-200 text-yellow-700"
+                            title="View notes"
+                            onMouseEnter={()=> setNoteHoverKey(`${emp.id}|${d}`)}
+                            onMouseLeave={()=> setNoteHoverKey("")}
+                            onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setNotesPanel({ open:true, empId: emp.id }); }}
+                          >
+                            📝 {notesByEmpDay[emp.id][d].length}
+                          </button>
+                        )}
+
+                        {/* Hover preview popover */}
+                        {noteHoverKey === `${emp.id}|${d}` && (
+                          <div className="absolute z-30 right-1 top-6 w-56 bg-white border rounded shadow p-2 text-xs space-y-1">
+                            {notesByEmpDay[emp.id][d].map((t, i)=>(
+                              <div key={i} className="text-gray-700 break-words">• {t}</div>
+                            ))}
+                            <div className="pt-1 border-t text-[10px] text-gray-500">Click 📝 to open week notes</div>
                           </div>
                         )}
                         {(() => {
@@ -444,12 +550,14 @@ export default function Roster(){
                       </div>
                     ))}
                   </div>
-                ))
+                  ))}
+                  <div style={{ height: Math.max(0, (totalEmployeeRows - endIndex) * ROW_HEIGHT) }} />
+                </>
               ) : (
                 grouped.map(g => (
-                  <div key={g.key} className="grid border-t" style={{gridTemplateColumns: `220px repeat(7, 1fr)`}}>
+                  <div key={g.key} className="grid border-t" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                     {/* Group label */}
-                    <div className="p-3 bg-gray-50/60 border-r">
+                    <div className="p-3 bg-gray-50/60 border-r sticky left-0 z-10">
                       <div className="text-sm font-semibold flex items-center gap-2">
                         {groupBy === 'role_code' && (
                           <span className="inline-block h-3 w-3 rounded" style={{background:`hsl(${roleHue(String(g.key))},80%,70%)`}} />
@@ -463,7 +571,7 @@ export default function Roster(){
                     {days.map(d => {
                       const inCell = g.rows.filter(s => s.shift_date === d);
                       return (
-                        <div key={d} className="p-1 border-r min-h-[52px]">
+                        <div key={d} className="p-1 border-r h-[64px] overflow-auto">
                           {inCell.length === 0 ? (
                             <div className="text-[11px] text-gray-400">—</div>
                           ) : (
@@ -598,6 +706,68 @@ export default function Roster(){
             );
           })}
         </>
+      )}
+      {/* Right-side Notes Panel */}
+      {notesPanel.open && (
+        <div className="fixed inset-0 z-40">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/20"
+            onClick={() => setNotesPanel({ open: false, empId: null })}
+          />
+          {/* Panel */}
+          <div className="absolute right-0 top-0 h-full w-full sm:w-[360px] bg-white shadow-xl border-l border-gray-200 flex flex-col">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <div className="text-sm font-semibold">Notes for this week</div>
+              <button
+                className="text-sm px-2 py-1 rounded border hover:bg-gray-50"
+                onClick={() => setNotesPanel({ open: false, empId: null })}
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-3 overflow-auto text-sm">
+              {!notesPanel.empId ? (
+                <div className="text-gray-500">No employee selected.</div>
+              ) : (
+                (() => {
+                  const items = getEmpWeekNotes(notesPanel.empId);
+                  const hasAny = items.some((x) => (x.notes || []).length > 0);
+                  if (!hasAny)
+                    return (
+                      <div className="text-gray-500">No notes for this week.</div>
+                    );
+                  return (
+                    <div className="space-y-3">
+                      {items.map(({ date, notes }) => (
+                        <div key={date} className="border rounded p-2">
+                          <div className="text-xs font-medium text-gray-600 mb-1">
+                            {new Date(date).toLocaleDateString(undefined, {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </div>
+                          {(notes || []).length === 0 ? (
+                            <div className="text-[11px] text-gray-400">—</div>
+                          ) : (
+                            <ul className="list-disc pl-4 space-y-1">
+                              {notes.map((t, i) => (
+                                <li key={i} className="break-words">
+                                  {t}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
