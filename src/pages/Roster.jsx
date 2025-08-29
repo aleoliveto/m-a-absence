@@ -76,12 +76,16 @@ const shiftHours = (start, end) => {
   if (mins <= 0) mins += 24*60; // support overnight (end past midnight)
   return Math.max(0, mins/60);
 };
+
 const eachDateIso = (from, to) => {
   const out = []; let d = new Date(from); const end = new Date(to);
   d.setHours(0,0,0,0); end.setHours(0,0,0,0);
   while (d <= end) { out.push(iso(d)); d.setDate(d.getDate()+1); }
   return out;
 };
+
+// Responsive grid: sticky left name column + 7 day columns that flex
+const GRID_COLS = 'minmax(200px,260px) repeat(7, minmax(120px, 1fr))';
 
 export default function Roster(){
   const [bases, setBases] = useState([]);
@@ -759,6 +763,24 @@ export default function Roster(){
     return by;
   }, [days, shifts, assignmentsByShift]);
 
+  // Per‑day, per‑shift‑type coverage (Day vs Night)
+  const coverageByType = useMemo(() => {
+    const init = () => ({ required: 0, assigned: 0, max: 0 });
+    const by = Object.fromEntries(days.map(d => [d, { day: init(), night: init() }]));
+    (shifts || []).forEach(s => {
+      const d = s.shift_date; if (!by[d]) return;
+      const assigns = (assignmentsByShift[s.shift_id]?.length || 0);
+      const isDay = s.start_time === '06:00' && s.end_time === '18:00';
+      const isNight = s.start_time === '18:00' && s.end_time === '06:00';
+      const bucket = isDay ? by[d].day : isNight ? by[d].night : null;
+      if (!bucket) return;
+      bucket.required += (s.min_staff || 0);
+      bucket.assigned += assigns;
+      bucket.max += (s.max_staff || 0);
+    });
+    return by;
+  }, [days, shifts, assignmentsByShift]);
+
   useEffect(()=>{
     (async ()=>{
       // Load absences overlapping the visible week
@@ -1274,9 +1296,9 @@ export default function Roster(){
       {/* Multi-schedule view */}
       <Card>
           <div className="overflow-auto" ref={scrollRef} onScroll={(e)=>{ setScrollY(e.currentTarget.scrollTop); setHeaderShadow(e.currentTarget.scrollTop>0); }}>
-            <div className="min-w-[1100px] w-full">
+            <div className="w-full">
               {/* Header row: group label + 7 day columns */}
-              <div className={`grid ${headerShadow ? 'shadow-sm' : ''}`} style={{ gridTemplateColumns: '200px repeat(7, 140px)' }}>
+              <div className={`grid ${headerShadow ? 'shadow-sm' : ''}`} style={{ gridTemplateColumns: GRID_COLS }}>
                 <div className="p-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{groupBy === 'base' ? 'Team' : groupBy.replace('_',' ')}</div>
                 {days.map(d => (
                   <div key={d} className="p-3 text-sm font-semibold text-gray-700 sticky top-0 bg-white z-10 border-b">{new Date(d).toLocaleDateString(undefined,{ weekday:'short', month:'short', day:'numeric' })}</div>
@@ -1295,7 +1317,7 @@ export default function Roster(){
                     return (
                       <div className="contents" key={`row-${emp.id}`}>
                         {showTeamSep && (
-                          <div className="grid" style={{ gridTemplateColumns: '200px repeat(7, 140px)' }}>
+                          <div className="grid" style={{ gridTemplateColumns: GRID_COLS }}>
                             <div className="px-3 py-2 text-[11px] font-semibold text-gray-600 bg-white sticky left-0 z-10 border-y border-t border-gray-200">
                               Team: {currBase || '—'}
                             </div>
@@ -1304,7 +1326,7 @@ export default function Roster(){
                             ))}
                           </div>
                         )}
-                        <div className="grid border-t" style={{ gridTemplateColumns: '200px repeat(7, 140px)' }}>
+                        <div className="grid border-t" style={{ gridTemplateColumns: GRID_COLS }}>
                     {/* Left: employee identity + weekly total */}
                     <div className="p-3 bg-gray-50/60 border-r sticky left-0 z-10">
                       <div className="flex items-center justify-between">
@@ -1474,7 +1496,7 @@ export default function Roster(){
                 </div>
               ) : (
                 grouped.map(g => (
-                  <div key={g.key} className="grid border-t" style={{ gridTemplateColumns: '200px repeat(7, 140px)' }}>
+                  <div key={g.key} className="grid border-t" style={{ gridTemplateColumns: GRID_COLS }}>
                     {/* Group label */}
                     <div className="p-3 bg-gray-50/60 border-r sticky left-0 z-10">
                       <div className="text-sm font-semibold flex items-center gap-2">
@@ -1586,7 +1608,7 @@ export default function Roster(){
                 ))
               )}
               {/* Inline Coverage strip */}
-              <div ref={coverageRef} className="grid border-t bg-gray-50 sticky bottom-0" style={{ gridTemplateColumns: '200px repeat(7, 140px)' }}>
+              <div ref={coverageRef} className="grid border-t bg-gray-50 sticky bottom-0" style={{ gridTemplateColumns: GRID_COLS }}>
                 <div className="p-2 text-xs font-semibold text-gray-700 border-r sticky left-0 bg-gray-50 z-10">Coverage</div>
                 {days.map(d => {
                   const t = coverageTotals[d] || { required: 0, assigned: 0, max: 0 };
