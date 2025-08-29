@@ -1357,81 +1357,78 @@ export default function Roster(){
                                 const hue = roleHue(String(s.role_code||g.key||''));
                                 const confl = conflictsByShift[s.shift_id] || [];
                                 // Removed function shiftLabel(s) { ... }
+                                const coverageBg = remaining > 0
+                                  ? 'rgba(239, 68, 68, 0.06)'     // red-500 @ 6% for understaffed
+                                  : (assigns.length > s.max_staff
+                                      ? 'rgba(245, 158, 11, 0.08)' // amber-500 @ 8% for overstaffed
+                                      : 'rgba(16, 185, 129, 0.06)'); // emerald-500 @ 6% for OK
                                 return (
-                                  (() => {
-                                    const coverageBg = remaining > 0
-                                      ? 'rgba(239, 68, 68, 0.06)'     // red-500 @ 6% for understaffed
-                                      : (assigns.length > s.max_staff
-                                          ? 'rgba(245, 158, 11, 0.08)' // amber-500 @ 8% for overstaffed
-                                          : 'rgba(16, 185, 129, 0.06)');// emerald-500 @ 6% for OK
-                                    return (
-                                      <div
-                                        key={s.shift_id}
-                                        className="rounded border text-[11px]"
-                                        style={{
-                                          background: `linear-gradient(0deg, ${coverageBg}, ${coverageBg}), hsl(${hue},100%,97%)`,
-                                          borderColor: `hsl(${hue},70%,80%)`
-                                        }}
-                                      >
-                                      <div className="px-2 py-0.5 flex items-center justify-between gap-2">
-                                        <div className="text-xs font-medium">{formatShiftLabel(s)}</div>
-                                        <div className="flex items-center gap-2">
-                                          <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
-                                            {assigns.length}/{s.min_staff}
-                                          </Badge>
-                                          {(remaining > 0 && s.status !== 'published' && s.status !== 'cancelled') && (
-                                            <button
-                                              className="text-[11px] px-1.5 py-0.5 rounded border hover:bg-gray-50"
-                                              onClick={()=>openFillPreview(s)}
-                                              title="Preview candidates and fill"
-                                            >Fill</button>
-                                          )}
-                                          {canEdit && s.status !== 'published' && s.status !== 'cancelled' && (
-                                            <button
-                                              className="text-[11px] p-1.5 rounded hover:bg-red-50"
-                                              title="Delete shift"
-                                              onClick={()=>deleteShift(s.shift_id)}
-                                            >
-                                              🗑️
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <div className="px-2 pb-1">
-                                        {assigns.length === 0 ? (
-                                          <div className="text-[11px] text-gray-500">Unassigned</div>
-                                        ) : (
-                                          <div className="flex flex-wrap gap-1">
-                                            {assigns.slice(0,2).map(a => (
-                                              <span key={a.id} className="text-[11px] bg-white/80 border rounded px-1.5 py-0.5">
-                                                {a.employee?.first_name} {a.employee?.last_name}
-                                              </span>
-                                            ))}
-                                            {assigns.length > 2 && (
-                                              <span className="text-[11px] text-gray-600">+{assigns.length-2} more</span>
-                                            )}
-                                            {confl.length>0 && (
-                                              <span className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">{confl.length} conflict</span>
-                                            )}
-                                          </div>
-                                        )}
-                                        {s.status === 'published' || s.status === 'cancelled' ? (
-                                          <div className="mt-2 text-[11px] text-gray-500">{s.status === 'published' ? 'Published — edits disabled' : 'Cancelled'}</div>
-                                        ) : (
-                                          <div className="mt-2 flex gap-1">
-                                            <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
-                                              <option value="">Add…</option>
-                                              {employees.map(emp => (
-                                                <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
-                                              ))}
-                                            </Select>
-                                            <Button onClick={()=>assign(s.shift_id)}>Add</Button>
-                                          </div>
-                                        )}
-                                      </div>
+                                  <div
+                                    key={s.shift_id}
+                                    className="rounded border text-[11px]"
+                                    style={{
+                                      background: `linear-gradient(0deg, ${coverageBg}, ${coverageBg}), hsl(${hue},100%,97%)`,
+                                      borderColor: `hsl(${hue},70%,80%)`
+                                    }}
+                                  >
+                                  <div className="px-2 py-0.5 flex items-center justify-between gap-2">
+                                    <div className="text-xs font-medium">{formatShiftLabel(s)}</div>
+                                    <div className="flex items-center gap-2">
+                                      <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
+                                        {assigns.length}/{s.min_staff}
+                                      </Badge>
+                                      {(remaining > 0 && s.status !== 'published' && s.status !== 'cancelled') && (
+                                        <button
+                                          className="text-[11px] px-1.5 py-0.5 rounded border hover:bg-gray-50"
+                                          onClick={()=>openFillPreview(s)}
+                                          title="Preview candidates and fill"
+                                        >Fill</button>
+                                      )}
+                                      {canEdit && s.status !== 'published' && s.status !== 'cancelled' && (
+                                        <button
+                                          className="text-[11px] p-1.5 rounded hover:bg-red-50"
+                                          title="Delete shift"
+                                          onClick={()=>deleteShift(s.shift_id)}
+                                        >
+                                          🗑️
+                                        </button>
+                                      )}
                                     </div>
-                                  );
-                                })()
+                                  </div>
+                                  <div className="px-2 pb-1">
+                                    {assigns.length === 0 ? (
+                                      <div className="text-[11px] text-gray-500">Unassigned</div>
+                                    ) : (
+                                      <div className="flex flex-wrap gap-1">
+                                        {assigns.slice(0,2).map(a => (
+                                          <span key={a.id} className="text-[11px] bg-white/80 border rounded px-1.5 py-0.5">
+                                            {a.employee?.first_name} {a.employee?.last_name}
+                                          </span>
+                                        ))}
+                                        {assigns.length > 2 && (
+                                          <span className="text-[11px] text-gray-600">+{assigns.length-2} more</span>
+                                        )}
+                                        {confl.length>0 && (
+                                          <span className="text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">{confl.length} conflict</span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {s.status === 'published' || s.status === 'cancelled' ? (
+                                      <div className="mt-2 text-[11px] text-gray-500">{s.status === 'published' ? 'Published — edits disabled' : 'Cancelled'}</div>
+                                    ) : (
+                                      <div className="mt-2 flex gap-1">
+                                        <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
+                                          <option value="">Add…</option>
+                                          {employees.map(emp => (
+                                            <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
+                                          ))}
+                                        </Select>
+                                        <Button onClick={()=>assign(s.shift_id)}>Add</Button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                );
                               })}
                             </div>
                           )}
