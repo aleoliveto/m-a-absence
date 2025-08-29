@@ -116,6 +116,8 @@ export default function Roster(){
   const [showFilters, setShowFilters] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [publishedOnly, setPublishedOnly] = useState(false);
+  // Collapse advanced toolbar controls into a panel
+  const [showAdvanced, setShowAdvanced] = useState(false);
   // Templates + bulk apply
   const [templates, setTemplates] = useState([]);
   const [showApplyTemplate, setShowApplyTemplate] = useState(false);
@@ -1011,59 +1013,51 @@ export default function Roster(){
 
           <div className="w-px h-6 bg-gray-200 mx-1" />
 
-          {/* Filters & utilities */}
+          {/* Essentials */}
           <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
           <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
             {showAvailability ? 'Hide Availability' : 'Show Availability'}
           </Button>
-
-          <div className="w-px h-6 bg-gray-200 mx-1" />
-
-          {/* Patterns */}
-          {canEdit && (
-            <>
-              <label className="text-xs text-gray-700 flex items-center gap-2">
-                Anchor
-                <Input type="date" value={patternAnchor} onChange={(e)=> setPatternAnchor(e.target.value)} />
-              </label>
-              <Button variant="outline" onClick={generatePattern}>Generate 28‑day pattern</Button>
-            </>
-          )}
-
-          <div className="w-px h-6 bg-gray-200 mx-1" />
-
-          {/* Float month */}
-          {canEdit && (
-            <>
-              <label className="text-xs text-gray-700 flex items-center gap-2">
-                Float team
-                <Select value={floatTeam} onChange={(e)=> setFloatTeam(e.target.value)}>
-                  <option value="">All</option>
-                  {bases.map(b=> <option key={b} value={b}>{b}</option>)}
-                </Select>
-              </label>
-              <label className="text-xs text-gray-700 flex items-center gap-2">
-                Float month (pick any day)
-                <Input type="date" value={floatMonth} onChange={(e)=> setFloatMonth(e.target.value)} />
-              </label>
-              <Button variant="outline" onClick={generateFloatMonth}>Generate float</Button>
-            </>
-          )}
-
-          <div className="w-px h-6 bg-gray-200 mx-1" />
-
-          {/* Week ops */}
-          {canEdit && <Button variant="outline" onClick={copyPrevWeek}>Copy prev → current</Button>}
-          {canEdit && <Button variant="outline" onClick={autofillWeek}>Auto‑fill</Button>}
-          {canEdit && <Button variant="outline" onClick={publishWeek}>Publish</Button>}
-          {canEdit && <Button variant="outline" onClick={unpublishWeek}>Unpublish</Button>}
           <label className="ml-1 inline-flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
             Published only
           </label>
+
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+
+          {/* Advanced panel toggle */}
+          <Button variant="outline" onClick={()=> setShowAdvanced(v=>!v)}>
+            {showAdvanced ? 'Hide advanced' : 'Advanced'}
+          </Button>
         </div>
       </div>
       <div className="text-sm text-gray-600">Plan shifts and track coverage. Absence conflicts are flagged automatically.</div>
+      {showAdvanced && (
+        <Card title="Advanced controls">
+          <div className="flex flex-wrap gap-2">
+            <Field label="Pattern anchor date">
+              <Input type="date" value={patternAnchor} onChange={e=> setPatternAnchor(e.target.value)} />
+            </Field>
+            <Button variant="outline" onClick={generatePattern}>Generate 28‑day Pattern</Button>
+
+            <Field label="Float team">
+              <Select value={floatTeam} onChange={e=> setFloatTeam(e.target.value)}>
+                <option value="">All</option>
+                {TEAMS.map(t=> <option key={t.name} value={t.name}>{t.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Float month">
+              <Input type="date" value={floatMonth} onChange={e=> setFloatMonth(e.target.value)} />
+            </Field>
+            <Button variant="outline" onClick={generateFloatMonth}>Generate Float Month</Button>
+
+            <Button variant="outline" onClick={copyPrevWeek}>Copy Previous Week → Current</Button>
+            <Button variant="outline" onClick={autofillWeek}>Auto‑fill Week</Button>
+            <Button variant="outline" onClick={publishWeek}>Publish Week</Button>
+            <Button variant="outline" onClick={unpublishWeek}>Unpublish Week</Button>
+          </div>
+        </Card>
+      )}
       {showAvailability && (
         <div className="flex items-center gap-3 text-[11px] text-gray-600">
           <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"></span> Available</span>
