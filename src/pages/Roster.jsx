@@ -457,6 +457,14 @@ export default function Roster(){
 
   async function assign(shift_id){
     if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    // Role restrictions: Seniors can only assign Officers
+    if (role === 'senior') {
+      const emp = employees.find(e => e.id === assignForm.employee_id);
+      if (!emp || (emp.role_code && emp.role_code.toLowerCase() !== 'officer')) {
+        toast('Seniors may only assign Officers', 'danger');
+        return;
+      }
+    }
     if (isShiftLockedById(shift_id)) { toast('Shift is published/cancelled — edits locked', 'warning'); return; }
     if (!assignForm.employee_id) return toast("Choose an employee", "warning");
     const { error } = await supabase.from("roster_assignment").insert([{ shift_id, employee_id: assignForm.employee_id, assigned_by: "admin@app" }]);
@@ -468,6 +476,13 @@ export default function Roster(){
 
   async function unassign(shift_id, employee_id){
     if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    if (role === 'senior') {
+      const emp = employees.find(e => e.id === employee_id);
+      if (!emp || (emp.role_code && emp.role_code.toLowerCase() !== 'officer')) {
+        toast('Seniors may only unassign Officers', 'danger');
+        return;
+      }
+    }
     if (isShiftLockedById(shift_id)) { toast('Shift is published/cancelled — edits locked', 'warning'); return; }
     const { error } = await supabase.from("roster_assignment").delete().match({ shift_id, employee_id });
     if (error) return toast(error.message, "danger");
@@ -587,8 +602,14 @@ export default function Roster(){
     toast(`Week set to ${status}`, 'success');
     load();
   }
-  function publishWeek(){ setWeekStatus(filters.from, filters.to, 'published'); }
-  function unpublishWeek(){ setWeekStatus(filters.from, filters.to, 'planned'); }
+  function publishWeek(){
+    if (role !== 'manager') { toast('Not authorized', 'danger'); return; }
+    setWeekStatus(filters.from, filters.to, 'published');
+  }
+  function unpublishWeek(){
+    if (role !== 'manager') { toast('Not authorized', 'danger'); return; }
+    setWeekStatus(filters.from, filters.to, 'planned');
+  }
 
   // === Delete shift helper ===
   async function deleteShift(shift_id){
@@ -993,7 +1014,21 @@ export default function Roster(){
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Roster</h1>
+        <h1 className="text-xl font-bold flex items-center gap-2">
+          Roster
+          <Badge
+            tone={
+              role === 'manager'
+                ? 'success'
+                : role === 'senior'
+                ? 'info'
+                : 'neutral'
+            }
+            title={`Your access level: ${role}`}
+          >
+            {role.charAt(0).toUpperCase() + role.slice(1)}
+          </Badge>
+        </h1>
         <div className="flex items-center gap-2">
           {/* Week nav */}
           <Button variant="ghost" onClick={()=> setFilters(f=>{
@@ -1025,14 +1060,21 @@ export default function Roster(){
 
           <div className="w-px h-6 bg-gray-200 mx-1" />
 
-          {/* Advanced panel toggle */}
-          <Button variant="outline" onClick={()=> setShowAdvanced(v=>!v)}>
-            {showAdvanced ? 'Hide advanced' : 'Advanced'}
-          </Button>
+          {/* Advanced panel toggle and Create Shift toggle: Managers only */}
+          {role === 'manager' && (
+            <>
+              <Button variant="outline" onClick={()=> setShowAdvanced(v=>!v)}>
+                {showAdvanced ? 'Hide advanced' : 'Advanced'}
+              </Button>
+              <Button variant="outline" onClick={()=> setShowCreate(v=>!v)}>
+                {showCreate ? 'Hide Create' : 'Create Shift'}
+              </Button>
+            </>
+          )}
         </div>
       </div>
       <div className="text-sm text-gray-600">Plan shifts and track coverage. Absence conflicts are flagged automatically.</div>
-      {showAdvanced && (
+      {showAdvanced && role === 'manager' && (
         <Card title="Advanced controls">
           <div className="flex flex-wrap gap-2">
             <Field label="Pattern anchor date">
@@ -1051,10 +1093,20 @@ export default function Roster(){
             </Field>
             <Button variant="outline" onClick={generateFloatMonth}>Generate Float Month</Button>
 
-            <Button variant="outline" onClick={copyPrevWeek}>Copy Previous Week → Current</Button>
-            <Button variant="outline" onClick={autofillWeek}>Auto‑fill Week</Button>
-            <Button variant="outline" onClick={publishWeek}>Publish Week</Button>
-            <Button variant="outline" onClick={unpublishWeek}>Unpublish Week</Button>
+            {/* Allow both manager and senior for Copy Previous Week and Auto-fill Week */}
+            {(role === 'manager' || role === 'senior') && (
+              <>
+                <Button variant="outline" onClick={copyPrevWeek}>Copy Previous Week → Current</Button>
+                <Button variant="outline" onClick={autofillWeek}>Auto‑fill Week</Button>
+              </>
+            )}
+            {/* Only manager for Publish/Unpublish */}
+            {role === 'manager' && (
+              <>
+                <Button variant="outline" onClick={publishWeek}>Publish Week</Button>
+                <Button variant="outline" onClick={unpublishWeek}>Unpublish Week</Button>
+              </>
+            )}
           </div>
         </Card>
       )}
@@ -1242,34 +1294,44 @@ export default function Roster(){
                         style={{ backgroundColor: availabilityTint(emp.id, d) || undefined }}
                         onContextMenu={(e) => { e.preventDefault(); addNote(emp.id, d); }}
                       >
-                        {/* Quick add button */}
-                        <button
-                          className="absolute top-0.5 right-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
-                          onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setQuickAddKey(k=> k===`${emp.id}|${d}`? "" : `${emp.id}|${d}`); }}
-                          title="Quick add"
-                        >＋</button>
-                        {quickAddKey === `${emp.id}|${d}` && (
-                          <div className="absolute z-20 right-1 top-5 bg-white border rounded shadow p-1 flex flex-col gap-1 text-xs">
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'day')}>Day shift</button>
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'night')}>Night shift</button>
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'training')}>Training</button>
-                          </div>
-                        )}
+                        {/* Quick add and availability buttons - role restrictions */}
+                        {(() => {
+                          // For Officers: hide both quick add and quick avail controls
+                          if (role === "officer") return null;
+                          // For Seniors: only show for Officer employees
+                          if (role === "senior" && String(emp.role_code || "").toLowerCase() !== "officer") return null;
+                          // Otherwise (Manager, or Senior on Officer), show controls
+                          return (
+                            <>
+                              <button
+                                className="absolute top-0.5 right-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
+                                onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setQuickAddKey(k=> k===`${emp.id}|${d}`? "" : `${emp.id}|${d}`); }}
+                                title="Quick add"
+                              >＋</button>
+                              {quickAddKey === `${emp.id}|${d}` && (
+                                <div className="absolute z-20 right-1 top-5 bg-white border rounded shadow p-1 flex flex-col gap-1 text-xs">
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'day')}>Day shift</button>
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'night')}>Night shift</button>
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=>quickCreate(emp, d, 'training')}>Training</button>
+                                </div>
+                              )}
 
-                        {/* Availability button */}
-                        <button
-                          className="absolute top-0.5 left-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
-                          onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setQuickAvailKey(k=> k===`${emp.id}|${d}`? "" : `${emp.id}|${d}`); }}
-                          title="Set availability"
-                        >⚑</button>
-                        {quickAvailKey === `${emp.id}|${d}` && (
-                          <div className="absolute z-20 left-1 top-5 bg-white border rounded shadow p-1 flex flex-col gap-1 text-xs">
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'available')}>Mark Available</button>
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'preferred')}>Mark Preferred</button>
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'unavailable')}>Mark Unavailable</button>
-                            <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, null)}>Clear</button>
-                          </div>
-                        )}
+                              <button
+                                className="absolute top-0.5 left-0.5 text-xs text-gray-500 hover:text-gray-700 px-1"
+                                onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); setQuickAvailKey(k=> k===`${emp.id}|${d}`? "" : `${emp.id}|${d}`); }}
+                                title="Set availability"
+                              >⚑</button>
+                              {quickAvailKey === `${emp.id}|${d}` && (
+                                <div className="absolute z-20 left-1 top-5 bg-white border rounded shadow p-1 flex flex-col gap-1 text-xs">
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'available')}>Mark Available</button>
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'preferred')}>Mark Preferred</button>
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, 'unavailable')}>Mark Unavailable</button>
+                                  <button className="px-2 py-1 hover:bg-gray-50 text-left" onClick={()=> setAvailability(emp.id, d, null)}>Clear</button>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
 
                         {/* Availability overlay dot */}
                         {showAvailability && (
@@ -1332,18 +1394,28 @@ export default function Roster(){
                                   <div key={`${emp.id}-${s.shift_id}`} className="group rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
                                     <div className="px-2 py-1 flex items-center justify-between gap-2">
                                       <div className="font-medium truncate" title={formatShiftLabel(s)}>{formatShiftLabel(s)}</div>
-                                      {canEdit && (
-                                        <button
-                                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50"
-                                          title="Remove this employee from the shift"
-                                          aria-label="Remove"
-                                          onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, emp.id); }}
-                                        >
-                                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
-                                            <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
-                                          </svg>
-                                        </button>
-                                      )}
+                                      {(() => {
+                                        // Officer: never show unassign
+                                        if (role === "officer") return null;
+                                        // Senior: only show for Officer employees
+                                        if (role === "senior" && String(emp.role_code || "").toLowerCase() !== "officer") return null;
+                                        // Manager: always show, or Senior for Officer
+                                        if (canEdit) {
+                                          return (
+                                            <button
+                                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50"
+                                              title="Remove this employee from the shift"
+                                              aria-label="Remove"
+                                              onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, emp.id); }}
+                                            >
+                                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
+                                                <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
+                                              </svg>
+                                            </button>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                     </div>
                                     {(isAbsent || confl.length>0) && (
                                       <div className="px-2 pb-1 flex gap-1 flex-wrap">
@@ -1393,12 +1465,13 @@ export default function Roster(){
                                 const remaining = Math.max(0, s.min_staff - assigns.length);
                                 const hue = roleHue(String(s.role_code||g.key||''));
                                 const confl = conflictsByShift[s.shift_id] || [];
-                                // Removed function shiftLabel(s) { ... }
-                                const coverageBg = remaining > 0
-                                  ? 'rgba(239, 68, 68, 0.06)'     // red-500 @ 6% for understaffed
-                                  : (assigns.length > s.max_staff
-                                      ? 'rgba(245, 158, 11, 0.08)' // amber-500 @ 8% for overstaffed
-                                      : 'rgba(16, 185, 129, 0.06)'); // emerald-500 @ 6% for OK
+                                // Role-based restrictions for controls
+                                // Officer: no edit controls at all
+                                // Senior: only allow add/remove if shift is for Officer
+                                const isOfficerShift = String(s.role_code || "").toLowerCase() === "officer";
+                                const controlsAllowed =
+                                  (role === "manager") ||
+                                  (role === "senior" && isOfficerShift);
                                 return (
                                   <div
                                     key={s.shift_id}
@@ -1414,14 +1487,14 @@ export default function Roster(){
                                       <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
                                         {assigns.length}/{s.min_staff}
                                       </Badge>
-                                      {(remaining > 0 && s.status !== 'published' && s.status !== 'cancelled') && (
+                                      {(remaining > 0 && s.status !== 'published' && s.status !== 'cancelled' && controlsAllowed) && (
                                         <button
                                           className="text-[11px] px-1.5 py-0.5 rounded border hover:bg-gray-50"
                                           onClick={()=>openFillPreview(s)}
                                           title="Preview candidates and fill"
                                         >Fill</button>
                                       )}
-                                      {canEdit && s.status !== 'published' && s.status !== 'cancelled' && (
+                                      {(controlsAllowed && s.status !== 'published' && s.status !== 'cancelled') && (
                                         <button
                                           className="text-[11px] p-1.5 rounded hover:bg-red-50"
                                           title="Delete shift"
@@ -1453,15 +1526,17 @@ export default function Roster(){
                                     {s.status === 'published' || s.status === 'cancelled' ? (
                                       <div className="mt-2 text-[11px] text-gray-500">{s.status === 'published' ? 'Published — edits disabled' : 'Cancelled'}</div>
                                     ) : (
-                                      <div className="mt-2 flex gap-1">
-                                        <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
-                                          <option value="">Add…</option>
-                                          {employees.map(emp => (
-                                            <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
-                                          ))}
-                                        </Select>
-                                        <Button onClick={()=>assign(s.shift_id)}>Add</Button>
-                                      </div>
+                                      controlsAllowed && (
+                                        <div className="mt-2 flex gap-1">
+                                          <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
+                                            <option value="">Add…</option>
+                                            {employees.map(emp => (
+                                              <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name}</option>
+                                            ))}
+                                          </Select>
+                                          <Button onClick={()=>assign(s.shift_id)}>Add</Button>
+                                        </div>
+                                      )
                                     )}
                                   </div>
                                 </div>
