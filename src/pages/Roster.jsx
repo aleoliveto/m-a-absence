@@ -42,7 +42,7 @@ const shiftHours = (start, end) => {
 const eachDateIso = (from, to) => {
   const out = []; let d = new Date(from); const end = new Date(to);
   d.setHours(0,0,0,0); end.setHours(0,0,0,0);
-  while (d <= end) { out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  while (d <= end) { out.push(iso(d)); d.setDate(d.getDate()+1); }
   return out;
 };
 
