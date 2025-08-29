@@ -68,6 +68,7 @@ const weekStart = (d) => {
   return x;
 };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const norm = (s) => String(s || '').trim().toLowerCase();
 const timeToMinutes = (t) => { const [h,m] = (t||"0:0").split(":").map(Number); return h*60 + m; };
 const shiftHours = (start, end) => {
   const s = timeToMinutes(start), e = timeToMinutes(end);
@@ -99,6 +100,7 @@ export default function Roster(){
 
   // scrolling + virtualization
   const scrollRef = useRef(null);
+  const coverageRef = useRef(null);
   const [scrollY, setScrollY] = useState(0);
   const [viewportH, setViewportH] = useState(600);
   const [headerShadow, setHeaderShadow] = useState(false);
@@ -743,6 +745,20 @@ export default function Roster(){
     return hours;
   }, [shifts, assignmentsByShift]);
 
+  // Per‑day coverage totals for the visible week
+  const coverageTotals = useMemo(() => {
+    const by = Object.fromEntries(days.map(d => [d, { required: 0, assigned: 0, max: 0 }]));
+    (shifts || []).forEach(s => {
+      const d = s.shift_date;
+      if (!by[d]) return;
+      const assigned = (assignmentsByShift[s.shift_id]?.length || 0);
+      by[d].required += (s.min_staff || 0);
+      by[d].assigned += assigned;
+      by[d].max += (s.max_staff || 0);
+    });
+    return by;
+  }, [days, shifts, assignmentsByShift]);
+
   useEffect(()=>{
     (async ()=>{
       // Load absences overlapping the visible week
@@ -1058,7 +1074,18 @@ export default function Roster(){
               {showAvailability ? 'Hide Availability' : 'Show Availability'}
             </Button>
             {(role === 'manager' || role === 'senior') && (
-              <Button className="h-8 px-2 text-sm" variant="outline" onClick={()=> setShowCoverageReport(true)}>Coverage</Button>
+              <Button
+                className="h-8 px-2 text-sm"
+                variant="outline"
+                onClick={()=>{
+                  const sc = scrollRef.current; const cov = coverageRef.current;
+                  if (sc && cov) {
+                    sc.scrollTo({ top: cov.offsetTop - 24, behavior: 'smooth' });
+                  } else {
+                    setShowCoverageReport(true);
+                  }
+                }}
+              >Coverage</Button>
             )}
             <label className="ml-1 inline-flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
@@ -1558,6 +1585,24 @@ export default function Roster(){
                   </div>
                 ))
               )}
+              {/* Inline Coverage strip */}
+              <div ref={coverageRef} className="grid border-t bg-gray-50 sticky bottom-0" style={{ gridTemplateColumns: '200px repeat(7, 140px)' }}>
+                <div className="p-2 text-xs font-semibold text-gray-700 border-r sticky left-0 bg-gray-50 z-10">Coverage</div>
+                {days.map(d => {
+                  const t = coverageTotals[d] || { required: 0, assigned: 0, max: 0 };
+                  const remaining = t.required - t.assigned;
+                  const over = Math.max(0, t.assigned - t.max);
+                  const tone = remaining > 0 ? 'text-red-600' : (over > 0 ? 'text-amber-600' : 'text-emerald-700');
+                  return (
+                    <div key={`cov-${d}`} className="p-2 text-xs border-r">
+                      <div className={`font-medium ${tone}`}>{t.assigned}/{t.required}</div>
+                      <div className="text-[10px] text-gray-500">
+                        {remaining > 0 ? `${remaining} short` : (over > 0 ? `+${over} over` : 'OK')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </Card>
