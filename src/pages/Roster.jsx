@@ -78,6 +78,8 @@ export default function Roster(){
   // Hover preview key for notes ("empId|YYYY-MM-DD"), and side panel state
   const [noteHoverKey, setNoteHoverKey] = useState("");
   const [notesPanel, setNotesPanel] = useState({ open:false, empId:null });
+  // Preview modal for auto-fill of a single shift
+  const [fillPreview, setFillPreview] = useState({ open:false, shift:null, candidates:[] });
 
   // Availability: { [empId]: { [isoDate]: 'available'|'preferred'|'unavailable' } }
   const [availabilityByEmpDay, setAvailabilityByEmpDay] = useState({});
@@ -235,6 +237,14 @@ export default function Roster(){
     return 3; // unavailable
   }
 
+  function availabilityText(empId, dateIso){
+    const st = availabilityByEmpDay[empId]?.[dateIso];
+    if (st === 'preferred') return 'Preferred';
+    if (st === 'available') return 'Available';
+    if (st === 'unavailable') return 'Unavailable';
+    return '—';
+  }
+
   function suggestCandidatesForShift(shift, count){
     const date = shift.shift_date;
     const assigns = new Set((assignmentsByShift[shift.shift_id] || []).map(a => a.employee_id));
@@ -254,6 +264,15 @@ export default function Roster(){
     });
 
     return ranked.slice(0, Math.max(0, count));
+  }
+
+  function openFillPreview(shift){
+    const assigns = assignmentsByShift[shift.shift_id] || [];
+    const remaining = Math.max(0, (shift.min_staff || 0) - assigns.length);
+    if (remaining <= 0) { toast('No remaining slots for this shift', 'info'); return; }
+    const candidates = suggestCandidatesForShift(shift, remaining);
+    if (candidates.length === 0) { toast('No suitable candidates found', 'warning'); return; }
+    setFillPreview({ open:true, shift, candidates });
   }
 
   async function fillShift(shift){
@@ -785,10 +804,57 @@ export default function Roster(){
                                         {remaining > 0 && (
                                           <button
                                             className="text-[11px] px-1.5 py-0.5 rounded border hover:bg-gray-50"
-                                            onClick={()=>fillShift(s)}
-                                            title="Fill from availability"
+                                            onClick={()=>openFillPreview(s)}
+                                            title="Preview candidates and fill"
                                           >Fill</button>
                                         )}
+      {fillPreview.open && fillPreview.shift && (
+        <div className="fixed inset-0 z-40">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setFillPreview({ open:false, shift:null, candidates:[] })}
+          />
+          <div className="absolute left-1/2 top-12 -translate-x-1/2 w-[min(640px,95vw)] bg-white rounded-lg shadow-xl border">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <div className="text-sm font-semibold">Fill preview — {formatShiftLabel(fillPreview.shift)} on {fillPreview.shift.shift_date}</div>
+              <button
+                className="text-sm px-2 py-1 rounded border hover:bg-gray-50"
+                onClick={() => setFillPreview({ open:false, shift:null, candidates:[] })}
+              >Close</button>
+            </div>
+            <div className="p-4 space-y-3 text-sm max-h-[60vh] overflow-auto">
+              {fillPreview.candidates.length === 0 ? (
+                <div className="text-gray-600">No candidates available.</div>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-500">
+                      <th className="py-1 pr-2">Employee</th>
+                      <th className="py-1 pr-2">Team/Dept</th>
+                      <th className="py-1 pr-2">Availability</th>
+                      <th className="py-1 pr-2">This week hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fillPreview.candidates.map(c => (
+                      <tr key={c.id} className="border-t">
+                        <td className="py-1 pr-2">{c.first_name} {c.last_name}</td>
+                        <td className="py-1 pr-2">{c.base || '—'} / {c.department || '—'}</td>
+                        <td className="py-1 pr-2">{availabilityText(c.id, fillPreview.shift.shift_date)}</td>
+                        <td className="py-1 pr-2">{(assignedHoursByEmp[c.id] || 0)}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={() => setFillPreview({ open:false, shift:null, candidates:[] })}>Cancel</Button>
+              <Button onClick={async () => { const s = fillPreview.shift; setFillPreview({ open:false, shift:null, candidates:[] }); await fillShift(s); }}>Confirm & assign</Button>
+            </div>
+          </div>
+        </div>
+      )}
                                       </div>
                                     </div>
                                     <div className="px-2 pb-1">
