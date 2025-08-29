@@ -1609,9 +1609,9 @@ export default function Roster(){
               )}
               {/* Inline Coverage strip */}
               <div ref={coverageRef} className="grid border-t bg-gray-50 sticky bottom-0" style={{ gridTemplateColumns: gridCols }}>
-                <div className="p-2 text-xs font-semibold text-gray-700 border-r sticky left-0 bg-gray-50 z-10">Coverage</div>
+                <div className="p-2 text-xs font-semibold text-gray-700 border-r sticky left-0 bg-gray-50 z-10">D/S</div>
                 {days.map(d => {
-                  const t = coverageTotals[d] || { required: 0, assigned: 0, max: 0 };
+                  const t = (coverageByType[d]?.day) || { required: 0, assigned: 0, max: 0 };
                   const remaining = t.required - t.assigned;
                   const over = Math.max(0, t.assigned - t.max);
                   const tone = remaining > 0 ? 'text-red-600' : (over > 0 ? 'text-amber-600' : 'text-emerald-700');
