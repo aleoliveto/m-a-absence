@@ -1308,10 +1308,8 @@ export default function Roster(){
               {/* Rows */}
               {groupBy === 'employee' ? (
                 <div className="contents">
-                  <div style={{ height: startIndex * ROW_HEIGHT }} />
-                  {employeeRows.slice(startIndex, endIndex).map(({ emp, byDay, totalHrs }, idx) => {
-                    const globalIndex = startIndex + idx;
-                    const prevBase = globalIndex > 0 ? (employeeRows[globalIndex - 1]?.emp?.base || '') : '';
+                  {employeeRows.map(({ emp, byDay, totalHrs }, idx) => {
+                    const prevBase = idx > 0 ? (employeeRows[idx - 1]?.emp?.base || '') : '';
                     const currBase = emp.base || '';
                     const showTeamSep = currBase !== prevBase;
                     return (
@@ -1492,7 +1490,6 @@ export default function Roster(){
                       </div>
                     );
                   })}
-                  <div style={{ height: Math.max(0, (totalEmployeeRows - endIndex) * ROW_HEIGHT) }} />
                 </div>
               ) : (
                 grouped.map(g => (
