@@ -1033,52 +1033,52 @@ export default function Roster(){
           </Badge>
         </h1>
         <div className="flex items-center gap-2">
-          {/* Week nav */}
-          <Button variant="ghost" onClick={()=> setFilters(f=>{
-            const ws = weekStart(new Date(f.from));
-            const prev = weekStart(addDays(ws, -7));
-            return { ...f, from: iso(prev), to: iso(addDays(prev,6)) };
-          })}>← Prev</Button>
-          <Button variant="ghost" onClick={()=> setFilters(f=>{
-            const ws = weekStart(new Date());
-            return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
-          })}>This week</Button>
-          <Button variant="ghost" onClick={()=> setFilters(f=>{
-            const ws = weekStart(new Date(f.from));
-            const next = weekStart(addDays(ws, 7));
-            return { ...f, from: iso(next), to: iso(addDays(next,6)) };
-          })}>Next →</Button>
+          {/* LEFT: Week nav */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <Button className="h-8 px-2 text-sm" variant="ghost" onClick={()=> setFilters(f=>{
+              const ws = weekStart(new Date(f.from));
+              const prev = weekStart(addDays(ws, -7));
+              return { ...f, from: iso(prev), to: iso(addDays(prev,6)) };
+            })}>← Prev</Button>
+            <Button className="h-8 px-2 text-sm" variant="ghost" onClick={()=> setFilters(f=>{
+              const ws = weekStart(new Date());
+              return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
+            })}>This week</Button>
+            <Button className="h-8 px-2 text-sm" variant="ghost" onClick={()=> setFilters(f=>{
+              const ws = weekStart(new Date(f.from));
+              const next = weekStart(addDays(ws, 7));
+              return { ...f, from: iso(next), to: iso(addDays(next,6)) };
+            })}>Next →</Button>
+          </div>
 
-          <div className="w-px h-6 bg-gray-200 mx-1" />
+          {/* MIDDLE: Essentials */}
+          <div className="hidden md:flex items-center gap-1 mx-2">
+            <Button className="h-8 px-2 text-sm" variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
+            <Button className="h-8 px-2 text-sm" variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
+              {showAvailability ? 'Hide Availability' : 'Show Availability'}
+            </Button>
+            {(role === 'manager' || role === 'senior') && (
+              <Button className="h-8 px-2 text-sm" variant="outline" onClick={()=> setShowCoverageReport(true)}>Coverage</Button>
+            )}
+            <label className="ml-1 inline-flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
+              Published only
+            </label>
+          </div>
 
-          {/* Essentials */}
-          <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
-          <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
-            {showAvailability ? 'Hide Availability' : 'Show Availability'}
-          </Button>
-          <label className="ml-1 inline-flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
-            Published only
-          </label>
-
-          {/* Coverage Report button for manager/senior */}
-          {(role === 'manager' || role === 'senior') && (
-            <Button variant="outline" onClick={()=> setShowCoverageReport(true)}>Coverage Report</Button>
-          )}
-
-          <div className="w-px h-6 bg-gray-200 mx-1" />
-
-          {/* Advanced panel toggle and Create Shift toggle: Managers only */}
-          {role === 'manager' && (
-            <>
-              <Button variant="outline" onClick={()=> setShowAdvanced(v=>!v)}>
-                {showAdvanced ? 'Hide advanced' : 'Advanced'}
-              </Button>
-              <Button variant="outline" onClick={()=> setShowCreate(v=>!v)}>
-                {showCreate ? 'Hide Create' : 'Create Shift'}
-              </Button>
-            </>
-          )}
+          {/* RIGHT: Manager actions */}
+          <div className="flex items-center gap-1 ml-auto">
+            {role === 'manager' && (
+              <>
+                <Button className="h-8 px-2 text-sm" variant="outline" onClick={()=> setShowAdvanced(v=>!v)}>
+                  {showAdvanced ? 'Hide advanced' : 'Advanced'}
+                </Button>
+                <Button className="h-8 px-2 text-sm" variant="outline" onClick={()=> setShowCreate(v=>!v)}>
+                  {showCreate ? 'Hide Create' : 'Create Shift'}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </div>
       <div className="text-sm text-gray-600">Plan shifts and track coverage. Absence conflicts are flagged automatically.</div>
@@ -1561,33 +1561,43 @@ export default function Roster(){
             </div>
           </div>
         </Card>
-    {/* Coverage Report Modal/Card */}
+    {/* Coverage Report Modal Overlay */}
     {showCoverageReport && (
-      <Card title="Coverage Report">
-        <div className="text-sm text-gray-600 mb-3">Summary of coverage for this week.</div>
-        {(() => {
-          // Calculate metrics
-          const totalShifts = shifts.length;
-          const filledShifts = shifts.filter(s => (assignmentsByShift[s.shift_id]?.length || 0) >= s.min_staff).length;
-          const coveragePercent = totalShifts === 0 ? 0 : Math.round((filledShifts / totalShifts) * 100);
-          const totalConflicts = (conflicts || []).length;
-          return (
-            <div className="mb-4">
-              <div className="grid grid-cols-2 gap-3 max-w-xs">
-                <div className="font-medium text-gray-700">Total shifts</div>
-                <div className="text-gray-900">{totalShifts}</div>
-                <div className="font-medium text-gray-700">Shifts fully covered</div>
-                <div className="text-gray-900">{filledShifts}</div>
-                <div className="font-medium text-gray-700">Coverage %</div>
-                <div className="text-gray-900">{coveragePercent}%</div>
-                <div className="font-medium text-gray-700">Total conflicts</div>
-                <div className="text-gray-900">{totalConflicts}</div>
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <Card title="Coverage Report" className="max-w-lg w-full relative">
+          <button
+            className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+            onClick={()=> setShowCoverageReport(false)}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+          <div className="text-sm text-gray-600 mb-3">Summary of coverage for this week.</div>
+          {(() => {
+            const totalShifts = shifts.length;
+            const filledShifts = shifts.filter(s => (assignmentsByShift[s.shift_id]?.length || 0) >= s.min_staff).length;
+            const coveragePercent = totalShifts === 0 ? 0 : Math.round((filledShifts / totalShifts) * 100);
+            const totalConflicts = (conflicts || []).length;
+            return (
+              <div className="mb-4">
+                <div className="grid grid-cols-2 gap-3 max-w-xs">
+                  <div className="font-medium text-gray-700">Total shifts</div>
+                  <div className="text-gray-900">{totalShifts}</div>
+                  <div className="font-medium text-gray-700">Shifts fully covered</div>
+                  <div className="text-gray-900">{filledShifts}</div>
+                  <div className="font-medium text-gray-700">Coverage %</div>
+                  <div className="text-gray-900">{coveragePercent}%</div>
+                  <div className="font-medium text-gray-700">Total conflicts</div>
+                  <div className="text-gray-900">{totalConflicts}</div>
+                </div>
               </div>
-            </div>
-          );
-        })()}
-        <Button variant="outline" onClick={()=> setShowCoverageReport(false)}>Close</Button>
-      </Card>
+            );
+          })()}
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={()=> setShowCoverageReport(false)}>Close</Button>
+          </div>
+        </Card>
+      </div>
     )}
     </div>
   );
