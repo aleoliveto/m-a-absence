@@ -4,6 +4,16 @@ import { Card, Button, Field, Input, Select, Table, Badge, toast } from "../comp
 // Simple color generator for role buckets
 const roleHue = (str = "-") => { let h = 0; for (let i=0;i<str.length;i++) h = (h*31 + str.charCodeAt(i)) % 360; return h; };
 
+// Helper: format shift label
+const formatShiftLabel = (s) => {
+  const rc = (s.role_code||'').toString().toUpperCase();
+  if (rc === 'TRAIN' || rc === 'TRAINING') return 'TRAIN';
+  const st = s.start_time, et = s.end_time;
+  if (st === '08:00' && et === '16:00') return 'DAY';
+  if (st === '20:00' && et === '06:00') return 'NIGHT';
+  return rc || 'SHIFT';
+};
+
 const iso = (d) => new Date(d).toISOString().slice(0,10);
 const weekStart = (d) => {
   const x = new Date(d); const day = x.getDay(); // 0 Sun..6 Sat
@@ -581,6 +591,7 @@ export default function Roster(){
                                 const remaining = Math.max(0, s.min_staff - assigns.length);
                                 const hue = roleHue(String(s.role_code||g.key||''));
                                 const confl = conflictsByShift[s.shift_id] || [];
+                                // Removed function shiftLabel(s) { ... }
                                 return (
                                   <div key={s.shift_id} className="rounded border text-[11px]" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
                                     <div className="px-2 py-0.5 flex items-center justify-between">
