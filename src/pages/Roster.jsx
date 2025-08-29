@@ -407,7 +407,15 @@ export default function Roster(){
     toast('Availability saved', 'success');
   }
 
+  // Helper: check if a shift is locked (published or cancelled)
+  function isShiftLockedById(shift_id){
+    const s = (shifts||[]).find(x => x.shift_id === shift_id);
+    return !!(s && (s.status === 'published' || s.status === 'cancelled'));
+  }
+
   async function assign(shift_id){
+    if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    if (isShiftLockedById(shift_id)) { toast('Shift is published/cancelled — edits locked', 'warning'); return; }
     if (!assignForm.employee_id) return toast("Choose an employee", "warning");
     const { error } = await supabase.from("roster_assignment").insert([{ shift_id, employee_id: assignForm.employee_id, assigned_by: "admin@app" }]);
     if (error) return toast(error.message, "danger");
@@ -417,6 +425,8 @@ export default function Roster(){
   }
 
   async function unassign(shift_id, employee_id){
+    if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    if (isShiftLockedById(shift_id)) { toast('Shift is published/cancelled — edits locked', 'warning'); return; }
     const { error } = await supabase.from("roster_assignment").delete().match({ shift_id, employee_id });
     if (error) return toast(error.message, "danger");
     toast("Unassigned", "success");
@@ -526,7 +536,19 @@ export default function Roster(){
   function publishWeek(){ setWeekStatus(filters.from, filters.to, 'published'); }
   function unpublishWeek(){ setWeekStatus(filters.from, filters.to, 'planned'); }
 
+  // === Delete shift helper ===
+  async function deleteShift(shift_id){
+    if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    if (isShiftLockedById(shift_id)) { toast('Shift is published/cancelled — edits locked', 'warning'); return; }
+    if (!window.confirm('Delete this shift? This will also remove its assignments.')) return;
+    const { error } = await supabase.from('roster_shift').delete().eq('id', shift_id);
+    if (error) { toast(error.message, 'danger'); return; }
+    toast('Shift deleted', 'success');
+    load();
+  }
+
   async function setStatus(shift_id, status){
+    if (!canEdit) { toast('Not authorized', 'danger'); return; }
     const { error } = await supabase.from("roster_shift").update({ status }).eq("id", shift_id);
     if (error) return toast(error.message, "danger");
     toast(`Shift ${status}`, "success");
@@ -727,6 +749,50 @@ export default function Roster(){
   const visibleCount = groupBy === 'employee' ? Math.ceil(viewportH / ROW_HEIGHT) + 6 : totalEmployeeRows;
   const endIndex = groupBy === 'employee' ? Math.min(totalEmployeeRows, startIndex + visibleCount) : totalEmployeeRows;
 
+  // Handler for copying previous week's shifts to current week
+  async function copyPrevWeek(){
+    const ws = weekStart(new Date(filters.from));
+    const prev = weekStart(addDays(ws, -7));
+    const prevFrom = iso(prev);
+    const prevTo = iso(addDays(prev, 6));
+
+    // fetch previous week shifts
+    const { data: prevShifts, error } = await supabase
+      .from('roster_shift')
+      .select('*')
+      .gte('shift_date', prevFrom)
+      .lte('shift_date', prevTo);
+    if (error) { toast(error.message, 'danger'); return; }
+
+    if (!Array.isArray(prevShifts) || prevShifts.length===0){
+      toast('No shifts found in previous week', 'info');
+      return;
+    }
+
+    // offset each shift forward by 7 days
+    const newRows = prevShifts.map(s => ({
+      ...s,
+      id: undefined,
+      shift_id: undefined,
+      shift_date: iso(addDays(new Date(s.shift_date), 7)),
+      status: 'planned'
+    }));
+
+    // prevent duplicates (match on date+time+team+dept+role)
+    const existing = new Set((shifts||[]).map(x => `${x.shift_date}|${x.start_time}|${x.end_time}|${x.base||''}|${x.department||''}|${x.role_code||''}`));
+    const deduped = newRows.filter(r => !existing.has(`${r.shift_date}|${r.start_time}|${r.end_time}|${r.base||''}|${r.department||''}|${r.role_code||''}`));
+
+    if (deduped.length===0){
+      toast('All shifts already exist for this week', 'info');
+      return;
+    }
+
+    const { error: err2 } = await supabase.from('roster_shift').insert(deduped);
+    if (err2) { toast(err2.message, 'danger'); return; }
+    toast(`Copied ${deduped.length} shifts from previous week`, 'success');
+    load();
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -745,6 +811,9 @@ export default function Roster(){
             const ws = weekStart(new Date());
             return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
           })}>Today</Button>
+          {canEdit && (
+            <Button variant="outline" onClick={copyPrevWeek}>Copy prev → current</Button>
+          )}
           <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
             {showAvailability ? 'Hide Availability' : 'Show Availability'}
           </Button>
@@ -1090,6 +1159,15 @@ export default function Roster(){
                                             title="Preview candidates and fill"
                                           >Fill</button>
                                         )}
+                                        {canEdit && s.status !== 'published' && s.status !== 'cancelled' && (
+                                          <button
+                                            className="text-[11px] p-1.5 rounded hover:bg-red-50"
+                                            title="Delete shift"
+                                            onClick={()=>deleteShift(s.shift_id)}
+                                          >
+                                            🗑️
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
                                     <div className="px-2 pb-1">
@@ -1213,6 +1291,9 @@ export default function Roster(){
                           <td className="p-3 whitespace-nowrap">
                             {canEdit ? (
                               <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                                {s.status !== 'published' && s.status !== 'cancelled' && (
+                                  <Button variant="danger" onClick={()=>deleteShift(s.shift_id)}>Delete</Button>
+                                )}
                                 {s.status !== "published" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"published")}>Publish</Button>}
                                 {s.status !== "planned" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"planned")}>Unpublish</Button>}
                                 {s.status !== "cancelled" && <Button variant="danger" onClick={()=>setStatus(s.shift_id,"cancelled")}>Cancel</Button>}
