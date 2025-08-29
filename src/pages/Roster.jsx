@@ -338,7 +338,9 @@ export default function Roster(){
       assigns.forEach(a => {
         const row = byId.get(a.employee_id);
         if (!row) return; // filtered out
-        row.byDay[s.shift_date].push(s);
+        const bucket = row.byDay[s.shift_date];
+        if (!bucket) return; // shift is outside the current days window
+        bucket.push(s);
         row.totalHrs += shiftHours(s.start_time, s.end_time);
       });
     });
