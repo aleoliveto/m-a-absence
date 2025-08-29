@@ -86,7 +86,6 @@ export default function Roster(){
   const [bases, setBases] = useState([]);
   const [depts, setDepts] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [viewMode, setViewMode] = useState("grid"); // grid | list
   const [groupBy, setGroupBy] = useState("employee"); // employee | role_code | base | department
 
   // Role awareness from header selector
@@ -618,8 +617,8 @@ export default function Roster(){
   async function quickCreate(emp, date, kind){
     // Presets
     const presets = {
-      day: { start: "08:00", end: "16:00", role: emp.role_code || "SHIFT" },
-      night: { start: "20:00", end: "06:00", role: emp.role_code || "SHIFT" }, // overnight supported by shiftHours
+      day: { start: "06:00", end: "18:00", role: emp.role_code || "SHIFT" },
+      night: { start: "18:00", end: "06:00", role: emp.role_code || "SHIFT" }, // overnight supported by shiftHours
       training: { start: "09:00", end: "17:00", role: "TRAIN" }
     };
     const p = presets[kind];
@@ -1097,12 +1096,6 @@ export default function Roster(){
               }}/>
             </Field>
             <Field label="To (Sun)"><Input type="date" value={filters.to} onChange={e=>setFilters(f=>({...f, to:e.target.value}))}/></Field>
-            <Field label="View">
-              <Select value={viewMode} onChange={e=>setViewMode(e.target.value)}>
-                <option value="grid">Grid</option>
-                <option value="list">List</option>
-              </Select>
-            </Field>
             <Field label="Group by">
               <Select value={groupBy} onChange={e=>setGroupBy(e.target.value)}>
                 <option value="employee">Employee</option>
@@ -1194,8 +1187,7 @@ export default function Roster(){
         </Card>
       )}
       {/* Multi-schedule view */}
-      {viewMode === "grid" ? (
-        <Card>
+      <Card>
           <div className="overflow-auto" ref={scrollRef} onScroll={(e)=>{ setScrollY(e.currentTarget.scrollTop); setHeaderShadow(e.currentTarget.scrollTop>0); }}>
             <div className="min-w-[1100px] w-full">
               {/* Header row: group label + 7 day columns */}
@@ -1216,7 +1208,7 @@ export default function Roster(){
                     const currBase = emp.base || '';
                     const showTeamSep = currBase !== prevBase;
                     return (
-                      <>
+                      <div className="contents" key={`row-${emp.id}`}>
                         {showTeamSep && (
                           <div className="grid" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                             <div className="px-3 py-2 text-[11px] font-semibold text-gray-600 bg-white sticky left-0 z-10 border-y border-t border-gray-200">
@@ -1227,7 +1219,7 @@ export default function Roster(){
                             ))}
                           </div>
                         )}
-                        <div key={emp.id} className="grid border-t" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
+                        <div className="grid border-t" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                     {/* Left: employee identity + weekly total */}
                     <div className="p-3 bg-gray-50/60 border-r sticky left-0 z-10">
                       <div className="flex items-center justify-between">
@@ -1370,8 +1362,8 @@ export default function Roster(){
                       </div>
                     ))}
                   </div>
-                      </>
-                    )})
+                      </div>
+                    })}
                   <div style={{ height: Math.max(0, (totalEmployeeRows - endIndex) * ROW_HEIGHT) }} />
                 </>
               ) : (
@@ -1487,290 +1479,6 @@ export default function Roster(){
             </div>
           </div>
         </Card>
-      ) : (
-        // Fallback to the original list view
-        <>
-          {days.map(d => {
-            const dayRows = shifts.filter(s=> s.shift_date === d);
-            return (
-              <Card key={d} title={new Date(d).toLocaleDateString(undefined,{ weekday:'long', year:'numeric', month:'short', day:'numeric' })}>
-                {dayRows.length === 0 ? (
-                  <div className="text-sm text-gray-500">No shifts.</div>
-                ) : (
-                  <Table head={["Time","Team/Dept","Role","Coverage","Status","Assignments","Actions"]}>
-                    {dayRows.map(s=>{
-                      const assigns = assignmentsByShift[s.shift_id] || [];
-                      const confl = conflictsByShift[s.shift_id] || [];
-                      const coverageTone = s.understaffed_by>0 ? "danger" : (s.overstaffed_by>0 ? "warning" : "success");
-                      return (
-                        <tr key={s.shift_id} className="group">
-                          <td className="p-3">{s.start_time}–{s.end_time}</td>
-                          <td className="p-3">{s.base || "—"} / {s.department || "—"}</td>
-                          <td className="p-3">{s.role_code || "—"}</td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-2">
-                              <Badge tone={coverageTone}>
-                                {s.assigned_count}/{s.min_staff} (max {s.max_staff})
-                              </Badge>
-                              {confl.length>0 && <Badge tone="danger">{confl.length} conflict(s)</Badge>}
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <Badge tone={s.status==="published" ? "success" : (s.status==="cancelled" ? "danger":"info")}>{s.status}</Badge>
-                          </td>
-                          <td className="p-3">
-                            <div className="flex flex-wrap gap-2">
-                              {assigns.map(a=>(
-                                <span key={a.id} className="inline-flex items-center gap-2 bg-gray-100 rounded-md px-2 py-1">
-                                  {a.employee?.first_name} {a.employee?.last_name}
-                                  {canEdit && (
-                                    <button
-                                      className="p-1 rounded hover:bg-red-50"
-                                      title="Remove"
-                                      aria-label="Remove"
-                                      onClick={()=>{ if (!window.confirm('Remove this employee from the shift?')) return; unassign(s.shift_id, a.employee_id); }}
-                                    >
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-red-600">
-                                        <path fillRule="evenodd" d="M8.5 3a1 1 0 00-1 1V5H5a1 1 0 100 2h10a1 1 0 100-2h-2.5V4a1 1 0 00-1-1h-3zM6 8a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm4 0a1 1 0 011 1v6a1 1 0 11-2 0V9a1 1 0 011-1zm5 1a1 1 0 00-1-1h-1v6a3 3 0 01-3 3H9a3 3 0 01-3-3V8H5a1 1 0 100 2h10a1 1 0 001-1z" clipRule="evenodd" />
-                                      </svg>
-                                    </button>
-                                  )}
-                                </span>
-                              ))}
-                            </div>
-                            {canEdit && (
-                              <div className="mt-2 flex gap-2">
-                                <Input placeholder="Search…" value={assignForm.empSearch} onChange={e=>setAssignForm(f=>({...f, empSearch:e.target.value}))}/>
-                                <Select value={assignForm.employee_id} onChange={e=>setAssignForm(f=>({...f, employee_id:e.target.value}))}>
-                                  <option value="">Pick employee…</option>
-                                  {employees
-                                    .filter(emp=>{
-                                      const q = assignForm.empSearch.trim().toLowerCase();
-                                      const full = `${emp.first_name} ${emp.last_name}`.toLowerCase();
-                                      return !q || full.includes(q) || (emp.email||"").toLowerCase().includes(q);
-                                    })
-                                    .map(emp=>(
-                                      <option key={emp.id} value={emp.id}>
-                                        {emp.first_name} {emp.last_name} — {emp.base || "—"}/{emp.department || "—"}
-                                      </option>
-                                    ))}
-                                </Select>
-                                <Button onClick={()=>assign(s.shift_id)}>Assign</Button>
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-3 whitespace-nowrap">
-                            {canEdit ? (
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-                                {s.status !== 'published' && s.status !== 'cancelled' && (
-                                  <Button variant="danger" onClick={()=>deleteShift(s.shift_id)}>Delete</Button>
-                                )}
-                                {s.status !== "published" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"published")}>Publish</Button>}
-                                {s.status !== "planned" && <Button variant="outline" onClick={()=>setStatus(s.shift_id,"planned")}>Unpublish</Button>}
-                                {s.status !== "cancelled" && <Button variant="danger" onClick={()=>setStatus(s.shift_id,"cancelled")}>Cancel</Button>}
-                                {s.status === 'published' && <span className="text-[11px] text-gray-500">Published — edits disabled</span>}
-                              </div>
-                            ) : (
-                              <div>
-                                {s.status === 'published' && <span className="text-[11px] text-gray-500">Published</span>}
-                                {s.status === 'planned' && <span className="text-[11px] text-gray-500">Unpublished</span>}
-                                {s.status === 'cancelled' && <span className="text-[11px] text-gray-500">Cancelled</span>}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </Table>
-                )}
-              </Card>
-            );
-          })}
-        </>
-      )}
-      {applyPreview.open && (
-        <div className="fixed inset-0 z-40">
-          <div className="absolute inset-0 bg-black/30" onClick={()=> setApplyPreview({ open:false, rows:[], duplicates:[] })} />
-          <div className="absolute left-1/2 top-12 -translate-x-1/2 w-[min(760px,95vw)] bg-white rounded-lg shadow-xl border">
-            <div className="px-4 py-3 border-b flex items-center justify-between">
-              <div className="text-sm font-semibold">Apply Template — Preview</div>
-              <button className="text-sm px-2 py-1 rounded border hover:bg-gray-50" onClick={()=> setApplyPreview({ open:false, rows:[], duplicates:[] })}>Close</button>
-            </div>
-            <div className="p-4 space-y-3 text-sm max-h-[60vh] overflow-auto">
-              {(() => {
-                const byDate = new Map();
-                (applyPreview.rows||[]).forEach(r=>{
-                  const k = r.shift_date;
-                  if (!byDate.has(k)) byDate.set(k, []);
-                  byDate.get(k).push(r);
-                });
-                const dates = [...byDate.keys()].sort();
-                if (dates.length === 0) return <div className="text-gray-600">Nothing to create.</div>;
-                return (
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="text-xs text-gray-500">
-                        <th className="py-1 pr-2">Date</th>
-                        <th className="py-1 pr-2">Count</th>
-                        <th className="py-1 pr-2">Team / Dept</th>
-                        <th className="py-1 pr-2">Time</th>
-                        <th className="py-1 pr-2">Role</th>
-                        <th className="py-1 pr-2">Notes</th>
-                        <th className="py-1 pr-2">Coverage Forecast</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dates.map(d => {
-                        const rows = byDate.get(d);
-                        const r0 = rows[0];
-                        return (
-                          <tr key={d} className="border-t">
-                            <td className="py-1 pr-2">{new Date(d).toLocaleDateString(undefined,{ weekday:'short', month:'short', day:'numeric' })}</td>
-                            <td className="py-1 pr-2">{rows.length}</td>
-                            <td className="py-1 pr-2">{r0.base || '—'} / {r0.department || '—'}</td>
-                            <td className="py-1 pr-2">{r0.start_time}–{r0.end_time}</td>
-                            <td className="py-1 pr-2">{r0.role_code || '—'}</td>
-                            <td className="py-1 pr-2">{r0.notes || '—'}</td>
-                            <td className="py-1 pr-2">
-                              {(() => {
-                                // Estimate coverage forecast
-                                const assigns = (shifts||[]).filter(s => s.shift_date===d).length;
-                                const minTotal = rows.reduce((sum,r)=> sum+(r.min_staff||0),0);
-                                return `${assigns}/${minTotal} filled`;
-                              })()}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                );
-              })()}
-
-              {applyPreview.duplicates.length > 0 && (
-                <div className="mt-3 p-2 border rounded bg-yellow-50 text-yellow-800">
-                  <div className="font-medium text-xs">Potential duplicates detected: {applyPreview.duplicates.length}</div>
-                  <div className="text-xs mt-1">These match an existing shift with the same date, time, team, department and role. Creating them will result in duplicates.</div>
-                </div>
-              )}
-            </div>
-            <div className="px-4 py-3 border-t flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={()=> setApplyPreview({ open:false, rows:[], duplicates:[] })}>Cancel</Button>
-              <Button onClick={createFromPreview}>Create these shifts</Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Fill Preview Modal (top-level, above everything) */}
-      {fillPreview.open && fillPreview.shift && (
-        <div className="fixed inset-0 z-40">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setFillPreview({ open:false, shift:null, candidates:[] })}
-          />
-          <div className="absolute left-1/2 top-12 -translate-x-1/2 w-[min(640px,95vw)] bg-white rounded-lg shadow-xl border">
-            <div className="px-4 py-3 border-b flex items-center justify-between">
-              <div className="text-sm font-semibold">Fill preview — {formatShiftLabel(fillPreview.shift)} on {fillPreview.shift.shift_date}</div>
-              <button
-                className="text-sm px-2 py-1 rounded border hover:bg-gray-50"
-                onClick={() => setFillPreview({ open:false, shift:null, candidates:[] })}
-              >Close</button>
-            </div>
-            <div className="p-4 space-y-3 text-sm max-h-[60vh] overflow-auto">
-              {fillPreview.candidates.length === 0 ? (
-                <div className="text-gray-600">No candidates available.</div>
-              ) : (
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-500">
-                      <th className="py-1 pr-2">Employee</th>
-                      <th className="py-1 pr-2">Team/Dept</th>
-                      <th className="py-1 pr-2">Availability</th>
-                      <th className="py-1 pr-2">This week hours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fillPreview.candidates.map(c => (
-                      <tr key={c.id} className="border-t">
-                        <td className="py-1 pr-2">{c.first_name} {c.last_name}</td>
-                        <td className="py-1 pr-2">{c.base || '—'} / {c.department || '—'}</td>
-                        <td className="py-1 pr-2">{availabilityText(c.id, fillPreview.shift.shift_date)}</td>
-                        <td className="py-1 pr-2">{(assignedHoursByEmp[c.id] || 0)}h</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-            <div className="px-4 py-3 border-t flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={() => setFillPreview({ open:false, shift:null, candidates:[] })}>Cancel</Button>
-              <Button onClick={async () => { const s = fillPreview.shift; setFillPreview({ open:false, shift:null, candidates:[] }); await fillShift(s); }}>Confirm & assign</Button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Right-side Notes Panel */}
-      {notesPanel.open && (
-        <div className="fixed inset-0 z-40">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/20"
-            onClick={() => setNotesPanel({ open: false, empId: null })}
-          />
-          {/* Panel */}
-          <div className="absolute right-0 top-0 h-full w-full sm:w-[360px] bg-white shadow-xl border-l border-gray-200 flex flex-col">
-            <div className="px-4 py-3 border-b flex items-center justify-between">
-              <div className="text-sm font-semibold">Notes for this week</div>
-              <button
-                className="text-sm px-2 py-1 rounded border hover:bg-gray-50"
-                onClick={() => setNotesPanel({ open: false, empId: null })}
-              >
-                Close
-              </button>
-            </div>
-            <div className="p-3 overflow-auto text-sm">
-              {!notesPanel.empId ? (
-                <div className="text-gray-500">No employee selected.</div>
-              ) : (
-                (() => {
-                  const items = getEmpWeekNotes(notesPanel.empId);
-                  const hasAny = items.some((x) => (x.notes || []).length > 0);
-                  if (!hasAny)
-                    return (
-                      <div className="text-gray-500">No notes for this week.</div>
-                    );
-                  return (
-                    <div className="space-y-3">
-                      {items.map(({ date, notes }) => (
-                        <div key={date} className="border rounded p-2">
-                          <div className="text-xs font-medium text-gray-600 mb-1">
-                            {new Date(date).toLocaleDateString(undefined, {
-                              weekday: "short",
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </div>
-                          {(notes || []).length === 0 ? (
-                            <div className="text-[11px] text-gray-400">—</div>
-                          ) : (
-                            <ul className="list-disc pl-4 space-y-1">
-                              {notes.map((t, i) => (
-                                <li key={i} className="break-words">
-                                  {t}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
