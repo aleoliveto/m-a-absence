@@ -8,6 +8,7 @@ import EmployeeDetail from './pages/EmployeeDetail.jsx'
 import Absences from './pages/Absences.jsx'
 import Settings from './pages/Settings.jsx'
 import Roster from './pages/Roster.jsx'
+import ShiftTemplate from './pages/ShiftTemplate.jsx'
 import { Toaster } from './components/ui'
 
 function Layout(){
@@ -27,6 +28,7 @@ function Layout(){
             <NavLink to="/employees" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Employees</NavLink>
             <NavLink to="/absences" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Absences</NavLink>
             <NavLink to="/roster" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Roster</NavLink>
+            <NavLink to="/templates" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Templates</NavLink>
             <NavLink to="/settings" className={({isActive}) => `${linkBase} ${isActive?active:idle}`}>Settings</NavLink>
           </nav>
           <div className="ml-auto">
@@ -47,6 +49,7 @@ function Layout(){
           <Route path="/employees/:id" element={<EmployeeDetail/>}/>
           <Route path="/absences" element={<Absences/>}/>
           <Route path="/roster" element={<Roster/>}/>
+          <Route path="/templates" element={<ShiftTemplate/>}/>
           <Route path="/settings" element={<Settings/>}/>
         </Routes>
         <footer className="py-6 text-center text-xs text-gray-500">

@@ -71,6 +71,200 @@ export default function Roster(){
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  // Templates + bulk apply
+  const [templates, setTemplates] = useState([]);
+  const [showApplyTemplate, setShowApplyTemplate] = useState(false);
+  const [applyForm, setApplyForm] = useState(()=>{
+    const ws = weekStart(new Date());
+    return {
+      template_id: "",
+      from: iso(weekStart(new Date(filters.from || ws))),
+      to: iso(addDays(weekStart(new Date(filters.from || ws)), 6)),
+      weekdays: { Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:false, Sun:false },
+      override: { base:"", department:"", min_staff:"", max_staff:"", notes:"" },
+      autoAssign: false,
+    };
+  });
+  // Preview for Apply Template
+  const [applyPreview, setApplyPreview] = useState({ open:false, rows:[], duplicates:[] });
+  useEffect(()=>{
+    (async ()=>{
+      const { data, error } = await supabase
+        .from('shift_template')
+        .select('*')
+        .order('name', { ascending: true });
+      if (error) { console.error(error); return; }
+      setTemplates(data||[]);
+    })();
+  },[]);
+  function setApplyToCurrentWeek(weekdaysOnly=true){
+    setApplyForm(f=>{
+      const ws = weekStart(new Date(filters.from));
+      const base = { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
+      if (weekdaysOnly){
+        return { ...base, weekdays: { Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:false, Sun:false } };
+      }
+      return { ...base, weekdays: { Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:true, Sun:true } };
+    });
+  }
+
+  function buildApplyRows(){
+    if (!applyForm.template_id) return { rows: [], duplicates: [] };
+    const t = templates.find(x=>x.id===applyForm.template_id);
+    if (!t) return { rows: [], duplicates: [] };
+
+    const from = new Date(applyForm.from); from.setHours(0,0,0,0);
+    const to = new Date(applyForm.to); to.setHours(0,0,0,0);
+    const wanted = new Set(Object.entries(applyForm.weekdays).filter(([k,v])=>!!v).map(([k])=>k));
+    const weekdayName = (d)=> ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+
+    const rows = [];
+    let d = new Date(from);
+    while (d <= to){
+      const label = weekdayName(d);
+      if (wanted.has(label)){
+        rows.push({
+          shift_date: iso(d),
+          start_time: t.start_time,
+          end_time: t.end_time,
+          base: applyForm.override.base || t.base || '',
+          department: applyForm.override.department || t.department || '',
+          role_code: t.role_code || '',
+          min_staff: Number(applyForm.override.min_staff || t.min_staff || 1),
+          max_staff: Number(applyForm.override.max_staff || t.max_staff || 1),
+          notes: applyForm.override.notes || t.notes || ''
+        });
+      }
+      d.setDate(d.getDate()+1);
+    }
+
+    // Build duplicate keys from currently loaded shifts
+    const existing = new Set((shifts||[]).map(s => `${s.shift_date}|${s.start_time}|${s.end_time}|${s.base||''}|${s.department||''}|${s.role_code||''}`));
+    const duplicates = [];
+    rows.forEach(r => {
+      const k = `${r.shift_date}|${r.start_time}|${r.end_time}|${r.base||''}|${r.department||''}|${r.role_code||''}`;
+      if (existing.has(k)) duplicates.push(r);
+    });
+
+    return { rows, duplicates };
+  }
+
+  function openApplyPreview(e){
+    e?.preventDefault?.();
+    if (!applyForm.template_id) return toast('Choose a template', 'warning');
+    const { rows, duplicates } = buildApplyRows();
+    if (rows.length === 0) return toast('No dates match your filters', 'warning');
+    setApplyPreview({ open:true, rows, duplicates });
+  }
+
+  async function createFromPreview(){
+    const rows = applyPreview.rows || [];
+    if (rows.length === 0) { setApplyPreview({ open:false, rows:[], duplicates:[] }); return; }
+    const { data: created, error } = await supabase.from('roster_shift').insert(rows).select('*');
+    if (error) { toast(error.message, 'danger'); return; }
+
+    if (applyForm.autoAssign && Array.isArray(created)){
+      for (const s of created){
+        try {
+          const stub = {
+            shift_id: s.id || s.shift_id,
+            shift_date: s.shift_date,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            base: s.base,
+            department: s.department,
+            role_code: s.role_code,
+            min_staff: s.min_staff,
+            max_staff: s.max_staff
+          };
+          const remaining = Math.max(0, (stub.min_staff || 0));
+          if (remaining <= 0) continue;
+          const candidates = suggestCandidatesForShift(stub, remaining);
+          for (const c of candidates){
+            const { error: errA } = await supabase.from('roster_assignment').insert([{ shift_id: stub.shift_id, employee_id: c.id, assigned_by: 'autofill@app' }]);
+            if (errA) { console.warn(errA.message); break; }
+          }
+        } catch (e) { console.warn(e); }
+      }
+    }
+
+    setApplyPreview({ open:false, rows:[], duplicates:[] });
+    toast(`Created ${rows.length} shifts${applyForm.autoAssign? ' + auto-assigned':''}`, 'success');
+    setShowApplyTemplate(false);
+    setApplyForm(f=>({ ...f, template_id:"" }));
+    load();
+  }
+
+  async function applyTemplateBulk(e){
+    e?.preventDefault?.();
+    if (!applyForm.template_id) return toast('Choose a template', 'warning');
+    const t = templates.find(x=>x.id===applyForm.template_id);
+    if (!t) return toast('Template not found', 'danger');
+    const from = new Date(applyForm.from); from.setHours(0,0,0,0);
+    const to = new Date(applyForm.to); to.setHours(0,0,0,0);
+    if (to < from) return toast('End date must be after start', 'warning');
+
+    const wanted = new Set(Object.entries(applyForm.weekdays).filter(([k,v])=>!!v).map(([k])=>k));
+    if (wanted.size===0) return toast('Pick at least one weekday', 'warning');
+
+    const weekdayName = (d)=> ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+
+    const rows = [];
+    let d = new Date(from);
+    while (d <= to){
+      const label = weekdayName(d);
+      if (wanted.has(label)){
+        rows.push({
+          shift_date: iso(d),
+          start_time: t.start_time,
+          end_time: t.end_time,
+          base: applyForm.override.base || t.base || '',
+          department: applyForm.override.department || t.department || '',
+          role_code: t.role_code || '',
+          min_staff: Number(applyForm.override.min_staff || t.min_staff || 1),
+          max_staff: Number(applyForm.override.max_staff || t.max_staff || 1),
+          notes: applyForm.override.notes || t.notes || ''
+        });
+      }
+      d.setDate(d.getDate()+1);
+    }
+
+    if (rows.length===0) return toast('No dates match your filters', 'warning');
+    if (!window.confirm(`Create ${rows.length} shifts from template "${t.name}"?`)) return;
+
+    const { data: created, error } = await supabase.from('roster_shift').insert(rows).select('*');
+    if (error) return toast(error.message, 'danger');
+    // Optionally auto-assign based on availability & fairness
+    if (applyForm.autoAssign && Array.isArray(created)){
+      for (const s of created){
+        try {
+          const stub = {
+            shift_id: s.id || s.shift_id, // support view column names
+            shift_date: s.shift_date,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            base: s.base,
+            department: s.department,
+            role_code: s.role_code,
+            min_staff: s.min_staff,
+            max_staff: s.max_staff
+          };
+          const assigns = []; // none yet
+          const remaining = Math.max(0, (stub.min_staff || 0) - assigns.length);
+          if (remaining <= 0) continue;
+          const candidates = suggestCandidatesForShift(stub, remaining);
+          for (const c of candidates){
+            const { error: errA } = await supabase.from('roster_assignment').insert([{ shift_id: stub.shift_id, employee_id: c.id, assigned_by: 'autofill@app' }]);
+            if (errA) { console.warn(errA.message); break; }
+          }
+        } catch (e) { console.warn(e); }
+      }
+    }
+    toast(`Created ${rows.length} shifts${applyForm.autoAssign? ' + auto-assigned':''}`, 'success');
+    setShowApplyTemplate(false);
+    setApplyForm(f=>({ ...f, template_id:"" }));
+    load();
+  }
   const [absencesByEmpDay, setAbsencesByEmpDay] = useState({}); // { empId: Set([YYYY-MM-DD]) }
 
   // Notes: { [empId]: { [isoDate]: string[] } }
@@ -515,6 +709,8 @@ export default function Roster(){
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
           <Button onClick={()=> setShowCreate(v=>!v)}>{showCreate? "Hide New Shift":"New Shift"}</Button>
+          <Button variant="outline" onClick={()=> window.location.href='/templates'}>Manage Templates</Button>
+          <Button variant="outline" onClick={()=> setShowApplyTemplate(true)}>Apply Template…</Button>
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const prev = weekStart(addDays(ws, -7));
@@ -603,6 +799,59 @@ export default function Roster(){
         </Card>
       )}
 
+      {showApplyTemplate && (
+        <Card title="Apply template to date range">
+          <form onSubmit={applyTemplateBulk} className="grid md:grid-cols-8 gap-3">
+            <Field label="Template" className="md:col-span-3">
+              <Select value={applyForm.template_id} onChange={e=> setApplyForm(f=>({...f, template_id:e.target.value}))}>
+                <option value="">— Select template —</option>
+                {templates.map(t=> <option key={t.id} value={t.id}>{t.name} ({t.start_time}–{t.end_time})</option>)}
+              </Select>
+            </Field>
+            <Field label="From"><Input type="date" value={applyForm.from} onChange={e=> setApplyForm(f=>({...f, from:e.target.value}))}/></Field>
+            <Field label="To"><Input type="date" value={applyForm.to} onChange={e=> setApplyForm(f=>({...f, to:e.target.value}))}/></Field>
+            <Field label="Weekdays" className="md:col-span-3">
+              <div className="flex flex-wrap gap-2 text-sm">
+                {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(w => (
+                  <label key={w} className="inline-flex items-center gap-1 border rounded px-2 py-1">
+                    <input type="checkbox" checked={!!applyForm.weekdays[w]} onChange={e=> setApplyForm(f=>({...f, weekdays:{...f.weekdays, [w]: e.target.checked}}))}/>
+                    {w}
+                  </label>
+                ))}
+              </div>
+            </Field>
+
+            <Field label="Override Team"><Input placeholder="(optional)" value={applyForm.override.base} onChange={e=> setApplyForm(f=>({...f, override:{...f.override, base:e.target.value}}))}/></Field>
+            <Field label="Override Dept"><Input placeholder="(optional)" value={applyForm.override.department} onChange={e=> setApplyForm(f=>({...f, override:{...f.override, department:e.target.value}}))}/></Field>
+            <Field label="Override Min/Max" className="md:col-span-2">
+              <div className="flex gap-2">
+                <Input type="number" min="1" placeholder="min" value={applyForm.override.min_staff} onChange={e=> setApplyForm(f=>({...f, override:{...f.override, min_staff:e.target.value}}))}/>
+                <Input type="number" min="1" placeholder="max" value={applyForm.override.max_staff} onChange={e=> setApplyForm(f=>({...f, override:{...f.override, max_staff:e.target.value}}))}/>
+              </div>
+            </Field>
+            <Field label="Override Notes" className="md:col-span-4">
+              <Input placeholder="(optional)" value={applyForm.override.notes} onChange={e=> setApplyForm(f=>({...f, override:{...f.override, notes:e.target.value}}))}/>
+            </Field>
+
+            <div className="md:col-span-8 flex flex-wrap items-center gap-2 justify-between">
+              <div className="flex items-center gap-3 text-sm">
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={!!applyForm.autoAssign} onChange={e=> setApplyForm(f=>({...f, autoAssign: e.target.checked}))} />
+                  Auto-assign after create
+                </label>
+                <div className="text-gray-400">•</div>
+                <button type="button" className="px-2 py-1 border rounded hover:bg-gray-50" onClick={()=> setApplyToCurrentWeek(true)}>This week (weekdays)</button>
+                <button type="button" className="px-2 py-1 border rounded hover:bg-gray-50" onClick={()=> setApplyToCurrentWeek(false)}>This week (all days)</button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" onClick={openApplyPreview}>Preview</Button>
+                <Button type="submit">Create shifts</Button>
+                <Button variant="outline" type="button" onClick={()=> setShowApplyTemplate(false)}>Cancel</Button>
+              </div>
+            </div>
+          </form>
+        </Card>
+      )}
       {/* Multi-schedule view */}
       {viewMode === "grid" ? (
         <Card>
@@ -936,6 +1185,79 @@ export default function Roster(){
             );
           })}
         </>
+      )}
+      {applyPreview.open && (
+        <div className="fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-black/30" onClick={()=> setApplyPreview({ open:false, rows:[], duplicates:[] })} />
+          <div className="absolute left-1/2 top-12 -translate-x-1/2 w-[min(760px,95vw)] bg-white rounded-lg shadow-xl border">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <div className="text-sm font-semibold">Apply Template — Preview</div>
+              <button className="text-sm px-2 py-1 rounded border hover:bg-gray-50" onClick={()=> setApplyPreview({ open:false, rows:[], duplicates:[] })}>Close</button>
+            </div>
+            <div className="p-4 space-y-3 text-sm max-h-[60vh] overflow-auto">
+              {(() => {
+                const byDate = new Map();
+                (applyPreview.rows||[]).forEach(r=>{
+                  const k = r.shift_date;
+                  if (!byDate.has(k)) byDate.set(k, []);
+                  byDate.get(k).push(r);
+                });
+                const dates = [...byDate.keys()].sort();
+                if (dates.length === 0) return <div className="text-gray-600">Nothing to create.</div>;
+                return (
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="text-xs text-gray-500">
+                        <th className="py-1 pr-2">Date</th>
+                        <th className="py-1 pr-2">Count</th>
+                        <th className="py-1 pr-2">Team / Dept</th>
+                        <th className="py-1 pr-2">Time</th>
+                        <th className="py-1 pr-2">Role</th>
+                        <th className="py-1 pr-2">Notes</th>
+                        <th className="py-1 pr-2">Coverage Forecast</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dates.map(d => {
+                        const rows = byDate.get(d);
+                        const r0 = rows[0];
+                        return (
+                          <tr key={d} className="border-t">
+                            <td className="py-1 pr-2">{new Date(d).toLocaleDateString(undefined,{ weekday:'short', month:'short', day:'numeric' })}</td>
+                            <td className="py-1 pr-2">{rows.length}</td>
+                            <td className="py-1 pr-2">{r0.base || '—'} / {r0.department || '—'}</td>
+                            <td className="py-1 pr-2">{r0.start_time}–{r0.end_time}</td>
+                            <td className="py-1 pr-2">{r0.role_code || '—'}</td>
+                            <td className="py-1 pr-2">{r0.notes || '—'}</td>
+                            <td className="py-1 pr-2">
+                              {(() => {
+                                // Estimate coverage forecast
+                                const assigns = (shifts||[]).filter(s => s.shift_date===d).length;
+                                const minTotal = rows.reduce((sum,r)=> sum+(r.min_staff||0),0);
+                                return `${assigns}/${minTotal} filled`;
+                              })()}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
+              })()}
+
+              {applyPreview.duplicates.length > 0 && (
+                <div className="mt-3 p-2 border rounded bg-yellow-50 text-yellow-800">
+                  <div className="font-medium text-xs">Potential duplicates detected: {applyPreview.duplicates.length}</div>
+                  <div className="text-xs mt-1">These match an existing shift with the same date, time, team, department and role. Creating them will result in duplicates.</div>
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t flex items-center justify-end gap-2">
+              <Button variant="outline" onClick={()=> setApplyPreview({ open:false, rows:[], duplicates:[] })}>Cancel</Button>
+              <Button onClick={createFromPreview}>Create these shifts</Button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Fill Preview Modal (top-level, above everything) */}
       {fillPreview.open && fillPreview.shift && (
