@@ -18,6 +18,34 @@ const formatShiftLabel = (s) => {
   return 'Shift';
 };
 
+// === Team pattern config (5 teams on a 28-day rolling pattern) ===
+const TEAMS = [
+  { name: 'Blue',   offset: 0 },
+  { name: 'Orange', offset: 6 },
+  { name: 'Purple', offset: 12 },
+  { name: 'Green',  offset: 18 },
+  { name: 'Red',    offset: 24 },
+];
+// Pattern string for 28 days (tokens: D=Day, N=Night, REST=rest day, OFF=off)
+const PATTERN_TOKENS = [
+  'D','D','D','N','N','REST','OFF','OFF','OFF','OFF',
+  'D','D','N','N','REST','OFF','OFF','OFF','OFF',
+  'D','D','N','N','N','REST','OFF','OFF','OFF'
+];
+// map token -> shift time/role or none
+const TOKEN_MAP = {
+  D:   { start: '06:00', end: '18:00', role: 'SHIFT' },
+  N:   { start: '18:00', end: '06:00', role: 'SHIFT' },
+  REST: null,
+  OFF:  null,
+};
+function patternIndexFor(teamOffset, anchorDate, date){
+  const a = new Date(anchorDate); a.setHours(0,0,0,0);
+  const d = new Date(date); d.setHours(0,0,0,0);
+  const diffDays = Math.round((d - a)/(1000*60*60*24));
+  return ((teamOffset + diffDays) % PATTERN_TOKENS.length + PATTERN_TOKENS.length) % PATTERN_TOKENS.length;
+}
+
 const iso = (d) => {
   const x = new Date(d);
   x.setHours(0,0,0,0);
@@ -97,6 +125,11 @@ export default function Roster(){
   });
   // Preview for Apply Template
   const [applyPreview, setApplyPreview] = useState({ open:false, rows:[], duplicates:[] });
+  // Pattern generator anchor day (choose any date)
+  const [patternAnchor, setPatternAnchor] = useState(() => iso(weekStart(new Date())));
+  // Float month controls
+  const [floatTeam, setFloatTeam] = useState("");
+  const [floatMonth, setFloatMonth] = useState(() => iso(new Date())); // store full date (YYYY-MM-DD)
   useEffect(()=>{
     (async ()=>{
       const { data, error } = await supabase
@@ -460,6 +493,18 @@ export default function Roster(){
     return '—';
   }
 
+  // Helper: compute a subtle background tint for availability
+  function availabilityTint(empId, dateIso){
+    if (!showAvailability) return null;
+    const st = availabilityByEmpDay[empId]?.[dateIso];
+    if (!st) return null;
+    // return a very subtle RGBA tint
+    if (st === 'preferred') return 'rgba(245, 158, 11, 0.08)';   // amber-500 @ 8%
+    if (st === 'available') return 'rgba(16, 185, 129, 0.08)';   // emerald-500 @ 8%
+    if (st === 'unavailable') return 'rgba(239, 68, 68, 0.08)';  // red-500 @ 8%
+    return null;
+  }
+
   function suggestCandidatesForShift(shift, count){
     const date = shift.shift_date;
     const assigns = new Set((assignmentsByShift[shift.shift_id] || []).map(a => a.employee_id));
@@ -541,8 +586,15 @@ export default function Roster(){
     if (!canEdit) { toast('Not authorized', 'danger'); return; }
     if (isShiftLockedById(shift_id)) { toast('Shift is published/cancelled — edits locked', 'warning'); return; }
     if (!window.confirm('Delete this shift? This will also remove its assignments.')) return;
-    const { error } = await supabase.from('roster_shift').delete().eq('id', shift_id);
-    if (error) { toast(error.message, 'danger'); return; }
+
+    // 1) Delete assignments first to avoid FK constraint issues
+    const { error: errA } = await supabase.from('roster_assignment').delete().eq('shift_id', shift_id);
+    if (errA) { toast(errA.message, 'danger'); return; }
+
+    // 2) Delete the shift
+    const { error: errS } = await supabase.from('roster_shift').delete().eq('id', shift_id);
+    if (errS) { toast(errS.message, 'danger'); return; }
+
     toast('Shift deleted', 'success');
     load();
   }
@@ -793,6 +845,136 @@ export default function Roster(){
     load();
   }
 
+  // Generate Float Month: fill unmet coverage using officers from a float team, capping each at 14 working days
+  async function generateFloatMonth(){
+    if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    if (!floatMonth) { toast('Pick a month', 'warning'); return; }
+    const base = new Date(floatMonth);
+    base.setHours(0,0,0,0);
+    const from = iso(new Date(base.getFullYear(), base.getMonth(), 1));
+    const to = iso(new Date(base.getFullYear(), base.getMonth()+1, 0));
+
+    // pull coverage rows needing staff
+    const { data: cov, error: errC } = await supabase
+      .from('roster_coverage_v')
+      .select('*')
+      .gte('shift_date', from).lte('shift_date', to)
+      .neq('status','cancelled');
+    if (errC) { toast(errC.message, 'danger'); return; }
+    const need = (cov||[]).filter(s => s.assigned_count < s.min_staff);
+    if (need.length===0){ toast('No unmet coverage this month', 'info'); return; }
+
+    // fetch assignments for these shifts to know dates per employee
+    const ids = need.map(s=>s.shift_id);
+    const { data: assigns } = await supabase
+      .from('roster_assignment')
+      .select('shift_id,employee_id');
+    const byShiftDate = Object.fromEntries((cov||[]).map(s=>[s.shift_id, s.shift_date]));
+
+    // build existing per-emp counts & per-day sets (within the month)
+    const empDays = {}; // {empId: count of assigned days}
+    const empDates = {}; // {empId: Set(dates)}
+    (assigns||[]).forEach(a=>{
+      const d = byShiftDate[a.shift_id];
+      if (!d) return;
+      empDays[a.employee_id] = (empDays[a.employee_id]||0) + 1;
+      (empDates[a.employee_id] = empDates[a.employee_id]||new Set()).add(d);
+    });
+
+    // availability & absences for the month
+    const { data: av } = await supabase.from('employee_availability').select('employee_id,date,status').gte('date',from).lte('date',to);
+    const avail = {}; (av||[]).forEach(r=>{ (avail[r.employee_id] = avail[r.employee_id]||{})[r.date]=r.status; });
+    const { data: abs } = await supabase.from('absence').select('employee_id,start_date,end_date').lte('start_date',to).gte('end_date',from);
+    const absent = {}; (abs||[]).forEach(a=>{ const ds = eachDateIso(a.start_date,a.end_date); const s = absent[a.employee_id]||new Set(); ds.forEach(d=>s.add(d)); absent[a.employee_id]=s; });
+
+    // eligible officers pool (floatTeam or all)
+    const pool = (employees||[]).filter(e => (!floatTeam || e.base===floatTeam));
+    const rankAvail = (empId,d)=>{ const st = avail[empId]?.[d]; return st==='preferred'?0 : st==='available'?1 : st===undefined?2 : 9; };
+
+    // Greedy assignment
+    let made = 0;
+    for (const s of need.sort((a,b)=> a.shift_date.localeCompare(b.shift_date))){
+      let remaining = (s.min_staff - s.assigned_count);
+      while (remaining-- > 0){
+        const d = s.shift_date;
+        const cand = pool
+          .filter(e => (empDays[e.id]||0) < 14)
+          .filter(e => !(empDates[e.id]?.has(d)))
+          .filter(e => !(absent[e.id]?.has(d)))
+          .filter(e => rankAvail(e.id,d) < 9)
+          .sort((a,b)=>{
+            const ra = rankAvail(a.id,d) - rankAvail(b.id,d);
+            if (ra!==0) return ra;
+            const ca = (empDays[a.id]||0) - (empDays[b.id]||0);
+            if (ca!==0) return ca;
+            return `${a.last_name||''}${a.first_name||''}`.localeCompare(`${b.last_name||''}${b.first_name||''}`);
+          })[0];
+        if (!cand) break;
+        const { error: errI } = await supabase.from('roster_assignment').insert([{ shift_id: s.shift_id, employee_id: cand.id, assigned_by: 'float@app' }]);
+        if (errI) { toast(errI.message,'danger'); break; }
+        empDays[cand.id] = (empDays[cand.id]||0) + 1;
+        (empDates[cand.id] = empDates[cand.id]||new Set()).add(d);
+        made++;
+      }
+    }
+    toast(made? `Float month: assigned ${made} slots` : 'No eligible assignments could be made', made? 'success' : 'info');
+    load();
+  }
+
+  // Generate 28‑day rolling pattern for 5 teams starting from selected anchor
+  async function generatePattern(){
+    if (!canEdit) { toast('Not authorized', 'danger'); return; }
+    if (!patternAnchor) { toast('Pick an anchor date', 'warning'); return; }
+    const anchor = new Date(patternAnchor); anchor.setHours(0,0,0,0);
+    const periodFrom = iso(anchor);
+    const periodTo = iso(addDays(anchor, 27));
+
+    // Optionally scope to a single Team from filters
+    const teams = (filters.base ? TEAMS.filter(t=> t.name === filters.base) : TEAMS);
+    if (teams.length === 0){ toast('No matching team for current filter', 'info'); return; }
+
+    // Fetch existing shifts in the 28‑day window for dedupe
+    const { data: existingRows, error: exErr } = await supabase
+      .from('roster_shift')
+      .select('shift_date,start_time,end_time,base,department,role_code')
+      .gte('shift_date', periodFrom)
+      .lte('shift_date', periodTo);
+    if (exErr) { toast(exErr.message, 'danger'); return; }
+    const existing = new Set((existingRows||[]).map(x => `${x.shift_date}|${x.start_time}|${x.end_time}|${x.base||''}|${x.department||''}|${x.role_code||''}`));
+
+    const rows = [];
+    for (let i=0;i<28;i++){
+      const d = addDays(anchor, i);
+      const dateIso = iso(d);
+      for (const team of teams){
+        const idx = patternIndexFor(team.offset, anchor, d);
+        const token = PATTERN_TOKENS[idx];
+        const map = TOKEN_MAP[token];
+        if (!map) continue; // REST / OFF
+        const row = {
+          shift_date: dateIso,
+          start_time: map.start,
+          end_time: map.end,
+          base: team.name,
+          department: filters.dept || '',
+          role_code: map.role,
+          min_staff: 1,
+          max_staff: 1,
+          notes: 'Pattern'
+        };
+        const key = `${row.shift_date}|${row.start_time}|${row.end_time}|${row.base}|${row.department}|${row.role_code}`;
+        if (!existing.has(key)) rows.push(row);
+      }
+    }
+
+    if (rows.length === 0){ toast('Nothing to create (already exists)', 'info'); return; }
+
+    const { error } = await supabase.from('roster_shift').insert(rows);
+    if (error) { toast(error.message, 'danger'); return; }
+    toast(`Created ${rows.length} shifts from 28‑day pattern`, 'success');
+    load();
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -811,6 +993,28 @@ export default function Roster(){
             const ws = weekStart(new Date());
             return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
           })}>Today</Button>
+          {canEdit && (
+            <>
+              <label className="text-xs text-gray-700 flex items-center gap-2">
+                Anchor
+                <Input type="date" value={patternAnchor} onChange={(e)=> setPatternAnchor(e.target.value)} />
+              </label>
+              <Button variant="outline" onClick={generatePattern}>Generate 28‑day pattern</Button>
+              <div className="w-px h-6 bg-gray-200 mx-1" />
+              <label className="text-xs text-gray-700 flex items-center gap-2">
+                Float team
+                <Select value={floatTeam} onChange={(e)=> setFloatTeam(e.target.value)}>
+                  <option value="">All</option>
+                  {bases.map(b=> <option key={b} value={b}>{b}</option>)}
+                </Select>
+              </label>
+              <label className="text-xs text-gray-700 flex items-center gap-2">
+                Float month (pick any day)
+                <Input type="date" value={floatMonth} onChange={(e)=> setFloatMonth(e.target.value)} />
+              </label>
+              <Button variant="outline" onClick={generateFloatMonth}>Generate float month</Button>
+            </>
+          )}
           {canEdit && (
             <Button variant="outline" onClick={copyPrevWeek}>Copy prev → current</Button>
           )}
@@ -832,6 +1036,14 @@ export default function Roster(){
         </div>
       </div>
       <div className="text-sm text-gray-600">Plan shifts and track coverage. Absence conflicts are flagged automatically.</div>
+      {showAvailability && (
+        <div className="flex items-center gap-3 text-[11px] text-gray-600">
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500"></span> Available</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500"></span> Preferred</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500"></span> Unavailable</span>
+          <span className="text-gray-400">(cells lightly tinted)</span>
+        </div>
+      )}
 
       {/* Filters */}
       {showFilters && (
@@ -992,6 +1204,7 @@ export default function Roster(){
                       <div
                         key={d}
                         className="relative p-1.5 border-r h-[80px] overflow-visible"
+                        style={{ backgroundColor: availabilityTint(emp.id, d) || undefined }}
                         onContextMenu={(e) => { e.preventDefault(); addNote(emp.id, d); }}
                       >
                         {/* Quick add button */}
@@ -1145,7 +1358,23 @@ export default function Roster(){
                                 const confl = conflictsByShift[s.shift_id] || [];
                                 // Removed function shiftLabel(s) { ... }
                                 return (
-                                  <div key={s.shift_id} className="rounded border text-[11px]" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
+                                  (()=>{
+                                    const coverageBg = remaining > 0
+                                      ? 'rgba(239, 68, 68, 0.06)'     // red-500 @ 6% for understaffed
+                                      : (assigns.length > s.max_staff
+                                          ? 'rgba(245, 158, 11, 0.08)' // amber-500 @ 8% for overstaffed
+                                          : 'rgba(16, 185, 129, 0.06)');// emerald-500 @ 6% for OK
+                                    return (
+                                      <div
+                                        key={s.shift_id}
+                                        className="rounded border text-[11px]"
+                                        style={{
+                                          background: `linear-gradient(0deg, ${coverageBg}, ${coverageBg}), hsl(${hue},100%,97%)`,
+                                          borderColor: `hsl(${hue},70%,80%)`
+                                        }}
+                                      >
+                                    );
+                                  })()
                                     <div className="px-2 py-0.5 flex items-center justify-between gap-2">
                                       <div className="text-xs font-medium">{formatShiftLabel(s)}</div>
                                       <div className="flex items-center gap-2">
