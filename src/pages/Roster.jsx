@@ -1199,14 +1199,7 @@ export default function Roster(){
               }}/>
             </Field>
             <Field label="To (Sun)"><Input type="date" value={filters.to} onChange={e=>setFilters(f=>({...f, to:e.target.value}))}/></Field>
-            <Field label="Group by">
-              <Select value={groupBy} onChange={e=>setGroupBy(e.target.value)}>
-                <option value="employee">Employee</option>
-                <option value="role_code">Function / Role</option>
-                <option value="department">Department</option>
-                <option value="base">Team</option>
-              </Select>
-            </Field>
+            {/* Removed Group by filter */}
             <div className="md:col-span-2 flex items-end">
               <div className="text-sm text-gray-600">Showing week {filters.from} → {filters.to}</div>
             </div>
@@ -1294,7 +1287,8 @@ export default function Roster(){
         </Card>
       )}
       {/* Multi-schedule view */}
-      <Card>
+      <div className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen">
+        <Card>
           <div className="overflow-auto" ref={scrollRef} onScroll={(e)=>{ setScrollY(e.currentTarget.scrollTop); setHeaderShadow(e.currentTarget.scrollTop>0); }}>
             <div className="w-full">
               {/* Header row: group label + 7 day columns */}
@@ -1625,6 +1619,7 @@ export default function Roster(){
             </div>
           </div>
         </Card>
+      </div>
     {/* Coverage Report Modal Overlay */}
     {showCoverageReport && (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
