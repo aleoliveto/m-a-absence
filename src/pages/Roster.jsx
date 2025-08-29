@@ -14,7 +14,12 @@ const formatShiftLabel = (s) => {
   return rc || 'SHIFT';
 };
 
-const iso = (d) => new Date(d).toISOString().slice(0,10);
+const iso = (d) => {
+  const x = new Date(d);
+  x.setHours(0,0,0,0);
+  const y = new Date(x.getTime() - x.getTimezoneOffset()*60000);
+  return y.toISOString().slice(0,10);
+};
 const weekStart = (d) => {
   const x = new Date(d); const day = x.getDay(); // 0 Sun..6 Sat
   const diff = (day + 6) % 7; // make Monday start
@@ -49,7 +54,7 @@ export default function Roster(){
   const [scrollY, setScrollY] = useState(0);
   const [viewportH, setViewportH] = useState(600);
   const [headerShadow, setHeaderShadow] = useState(false);
-  const ROW_HEIGHT = 72; // px, approximate row height
+  const ROW_HEIGHT = 80; // px, approximate row height
 
   const [filters, setFilters] = useState(()=>{
     const ws = weekStart(new Date());
@@ -481,7 +486,7 @@ export default function Roster(){
                     {days.map(d => (
                       <div
                         key={d}
-                        className="relative p-1.5 border-r h-[64px] overflow-auto"
+                        className="relative p-1.5 border-r h-[80px] overflow-visible"
                         onContextMenu={(e) => { e.preventDefault(); addNote(emp.id, d); }}
                       >
                         {/* Quick add button */}
@@ -513,7 +518,7 @@ export default function Roster(){
 
                         {/* Hover preview popover */}
                         {noteHoverKey === `${emp.id}|${d}` && (
-                          <div className="absolute z-30 right-1 top-6 w-56 bg-white border rounded shadow p-2 text-xs space-y-1">
+                          <div className="absolute z-40 left-full top-0 ml-2 w-56 bg-white border rounded shadow-lg p-2 text-xs space-y-1">
                             {notesByEmpDay[emp.id][d].map((t, i)=>(
                               <div key={i} className="text-gray-700 break-words">• {t}</div>
                             ))}
@@ -527,7 +532,7 @@ export default function Roster(){
                             return (
                               <div className="h-[48px] flex items-center justify-center">
                                 {isAbsent ? (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-red-700">Absent</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-red-700">ABSENT</span>
                                 ) : (
                                   <span className="text-[11px] text-gray-400">—</span>
                                 )}
@@ -542,12 +547,11 @@ export default function Roster(){
                                 return (
                                   <div key={`${emp.id}-${s.shift_id}`} className="rounded border text-[11px]" style={{borderColor:`hsl(${hue},70%,60%)`, background:`hsl(${hue},100%,98%)`}}>
                                     <div className="px-2 py-1 flex items-center justify-between gap-2">
-                                      <div className="font-medium truncate" title={s.role_code || 'Shift'}>{s.role_code || 'Shift'}</div>
-                                      <div className="shrink-0 whitespace-nowrap">{s.start_time}–{s.end_time}</div>
+                                      <div className="font-medium truncate" title={formatShiftLabel(s)}>{formatShiftLabel(s)}</div>
                                     </div>
                                     {(isAbsent || confl.length>0) && (
                                       <div className="px-2 pb-1 flex gap-1 flex-wrap">
-                                        {isAbsent && <span className="text-[10px] px-1 rounded bg-red-50 border border-red-200 text-red-700">Absent</span>}
+                                        {isAbsent && <span className="text-[10px] px-1 rounded bg-red-50 border border-red-200 text-red-700">ABSENT</span>}
                                         {confl.length>0 && <span className="text-[10px] px-1 rounded bg-yellow-50 border border-yellow-200 text-yellow-700">{confl.length} conflict</span>}
                                       </div>
                                     )}
@@ -595,7 +599,7 @@ export default function Roster(){
                                 return (
                                   <div key={s.shift_id} className="rounded border text-[11px]" style={{background:`hsl(${hue},100%,97%)`, borderColor:`hsl(${hue},70%,80%)`}}>
                                     <div className="px-2 py-0.5 flex items-center justify-between">
-                                      <div className="text-xs font-medium">{s.start_time}–{s.end_time}</div>
+                                      <div className="text-xs font-medium">{formatShiftLabel(s)}</div>
                                       <Badge tone={remaining>0? 'danger' : (assigns.length> s.max_staff? 'warning' : 'success')}>
                                         {assigns.length}/{s.min_staff}
                                       </Badge>
