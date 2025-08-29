@@ -4,6 +4,14 @@ import { Card, Button, Field, Input, Select, Table, Badge, toast } from "../comp
 // Simple color generator for role buckets
 const roleHue = (str = "-") => { let h = 0; for (let i=0;i<str.length;i++) h = (h*31 + str.charCodeAt(i)) % 360; return h; };
 
+// Role priority for sorting within team
+const rolePriority = (role = '') => {
+  const r = String(role).toLowerCase();
+  if (r === 'senior') return 0;
+  if (r === 'officer') return 1;
+  return 2; // others
+};
+
 // Helper: format shift label
 const formatShiftLabel = (s) => {
   const rc = (s.role_code||'').toString().toUpperCase();
@@ -11,8 +19,8 @@ const formatShiftLabel = (s) => {
   if (rc === 'TRAIN' || rc === 'TRAINING') return 'Training';
   // Time-based defaults
   const st = s.start_time, et = s.end_time;
-  if (st === '08:00' && et === '16:00') return 'Day Shift';
-  if (st === '20:00' && et === '06:00') return 'Night Shift';
+  if (st === '06:00' && et === '18:00') return 'Day Shift';
+  if (st === '18:00' && et === '06:00') return 'Night Shift';
   // Fallbacks
   if (rc) return rc.charAt(0) + rc.slice(1).toLowerCase();
   return 'Shift';
@@ -788,8 +796,14 @@ export default function Roster(){
       });
     });
 
-    // Sort employees by Last, First
+    // Sort: Team (base) → Senior first → Name
     return [...byId.values()].sort((a, b) => {
+      const ta = `${a.emp.base || ''}`.toLowerCase();
+      const tb = `${b.emp.base || ''}`.toLowerCase();
+      if (ta !== tb) return ta.localeCompare(tb);
+      const ra = rolePriority(a.emp.role_code);
+      const rb = rolePriority(b.emp.role_code);
+      if (ra !== rb) return ra - rb;
       const an = `${a.emp.last_name || ''} ${a.emp.first_name || ''}`.trim().toLowerCase();
       const bn = `${b.emp.last_name || ''} ${b.emp.first_name || ''}`.trim().toLowerCase();
       return an.localeCompare(bn);
@@ -980,19 +994,33 @@ export default function Roster(){
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Roster</h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
-          {canEdit && <Button onClick={()=> setShowCreate(v=>!v)}>{showCreate? "Hide New Shift":"New Shift"}</Button>}
-          {canEdit && <Button variant="outline" onClick={()=> window.location.href='/templates'}>Manage Templates</Button>}
-          {canEdit && <Button variant="outline" onClick={()=> setShowApplyTemplate(true)}>Apply Template…</Button>}
+          {/* Week nav */}
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date(f.from));
             const prev = weekStart(addDays(ws, -7));
             return { ...f, from: iso(prev), to: iso(addDays(prev,6)) };
-          })}>← Prev week</Button>
+          })}>← Prev</Button>
           <Button variant="ghost" onClick={()=> setFilters(f=>{
             const ws = weekStart(new Date());
             return { ...f, from: iso(ws), to: iso(addDays(ws,6)) };
-          })}>Today</Button>
+          })}>This week</Button>
+          <Button variant="ghost" onClick={()=> setFilters(f=>{
+            const ws = weekStart(new Date(f.from));
+            const next = weekStart(addDays(ws, 7));
+            return { ...f, from: iso(next), to: iso(addDays(next,6)) };
+          })}>Next →</Button>
+
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+
+          {/* Filters & utilities */}
+          <Button variant="outline" onClick={()=> setShowFilters(v=>!v)}>{showFilters? "Hide Filters":"Filters"}</Button>
+          <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
+            {showAvailability ? 'Hide Availability' : 'Show Availability'}
+          </Button>
+
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+
+          {/* Patterns */}
           {canEdit && (
             <>
               <label className="text-xs text-gray-700 flex items-center gap-2">
@@ -1000,7 +1028,14 @@ export default function Roster(){
                 <Input type="date" value={patternAnchor} onChange={(e)=> setPatternAnchor(e.target.value)} />
               </label>
               <Button variant="outline" onClick={generatePattern}>Generate 28‑day pattern</Button>
-              <div className="w-px h-6 bg-gray-200 mx-1" />
+            </>
+          )}
+
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+
+          {/* Float month */}
+          {canEdit && (
+            <>
               <label className="text-xs text-gray-700 flex items-center gap-2">
                 Float team
                 <Select value={floatTeam} onChange={(e)=> setFloatTeam(e.target.value)}>
@@ -1012,27 +1047,21 @@ export default function Roster(){
                 Float month (pick any day)
                 <Input type="date" value={floatMonth} onChange={(e)=> setFloatMonth(e.target.value)} />
               </label>
-              <Button variant="outline" onClick={generateFloatMonth}>Generate float month</Button>
+              <Button variant="outline" onClick={generateFloatMonth}>Generate float</Button>
             </>
           )}
-          {canEdit && (
-            <Button variant="outline" onClick={copyPrevWeek}>Copy prev → current</Button>
-          )}
-          <Button variant="outline" onClick={()=> setShowAvailability(v=>!v)}>
-            {showAvailability ? 'Hide Availability' : 'Show Availability'}
-          </Button>
-          {canEdit && <Button variant="outline" onClick={autofillWeek}>Auto-fill week</Button>}
-          {canEdit && <Button variant="outline" onClick={publishWeek}>Publish week</Button>}
-          {canEdit && <Button variant="outline" onClick={unpublishWeek}>Unpublish week</Button>}
-          <label className="ml-2 inline-flex items-center gap-2 text-sm text-gray-700">
+
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+
+          {/* Week ops */}
+          {canEdit && <Button variant="outline" onClick={copyPrevWeek}>Copy prev → current</Button>}
+          {canEdit && <Button variant="outline" onClick={autofillWeek}>Auto‑fill</Button>}
+          {canEdit && <Button variant="outline" onClick={publishWeek}>Publish</Button>}
+          {canEdit && <Button variant="outline" onClick={unpublishWeek}>Unpublish</Button>}
+          <label className="ml-1 inline-flex items-center gap-2 text-sm text-gray-700">
             <input type="checkbox" checked={publishedOnly} onChange={e=> setPublishedOnly(e.target.checked)} />
-            Show published only
+            Published only
           </label>
-          <Button variant="ghost" onClick={()=> setFilters(f=>{
-            const ws = weekStart(new Date(f.from));
-            const next = weekStart(addDays(ws, 7));
-            return { ...f, from: iso(next), to: iso(addDays(next,6)) };
-          })}>Next week →</Button>
         </div>
       </div>
       <div className="text-sm text-gray-600">Plan shifts and track coverage. Absence conflicts are flagged automatically.</div>
@@ -1181,8 +1210,24 @@ export default function Roster(){
               {groupBy === 'employee' ? (
                 <>
                   <div style={{ height: startIndex * ROW_HEIGHT }} />
-                  {employeeRows.slice(startIndex, endIndex).map(({ emp, byDay, totalHrs }) => (
-                    <div key={emp.id} className="grid border-t" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
+                  {employeeRows.slice(startIndex, endIndex).map(({ emp, byDay, totalHrs }, idx) => {
+                    const globalIndex = startIndex + idx;
+                    const prevBase = globalIndex > 0 ? (employeeRows[globalIndex - 1]?.emp?.base || '') : '';
+                    const currBase = emp.base || '';
+                    const showTeamSep = currBase !== prevBase;
+                    return (
+                      <>
+                        {showTeamSep && (
+                          <div className="grid" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
+                            <div className="px-3 py-2 text-[11px] font-semibold text-gray-600 bg-white sticky left-0 z-10 border-y border-t border-gray-200">
+                              Team: {currBase || '—'}
+                            </div>
+                            {days.map(d => (
+                              <div key={`sep-${currBase}-${d}`} className="border-y border-gray-200 bg-white" />
+                            ))}
+                          </div>
+                        )}
+                        <div key={emp.id} className="grid border-t" style={{gridTemplateColumns: `200px repeat(7, 140px)`}}>
                     {/* Left: employee identity + weekly total */}
                     <div className="p-3 bg-gray-50/60 border-r sticky left-0 z-10">
                       <div className="flex items-center justify-between">
@@ -1325,7 +1370,8 @@ export default function Roster(){
                       </div>
                     ))}
                   </div>
-                  ))}
+                      </>
+                    )})
                   <div style={{ height: Math.max(0, (totalEmployeeRows - endIndex) * ROW_HEIGHT) }} />
                 </>
               ) : (
